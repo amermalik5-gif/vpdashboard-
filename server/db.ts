@@ -171,6 +171,7 @@ export function audit(e: Omit<AuditEntry, 'id' | 'at'>) {
 }
 export const listAudit = (limit: number): AuditEntry[] =>
   (db.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT ?').all(limit) as Row[]).map(toAudit)
+export const allAudit = (): AuditEntry[] => (db.prepare('SELECT * FROM audit ORDER BY id').all() as Row[]).map(toAudit)
 export const getAudit = (id: number): AuditEntry | undefined => {
   const r = db.prepare('SELECT * FROM audit WHERE id = ?').get(id) as Row | undefined
   return r && toAudit(r)
