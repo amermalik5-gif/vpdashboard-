@@ -80,10 +80,12 @@ export function useBoard() {
 
   const refresh = useCallback(() => {
     // collapse bursts of change events into one fetch at a time
-    busy.current ??= Promise.all([api.state(), api.audit(50)])
-      .then(([s, a]) => {
+    busy.current ??= api
+      .state()
+      .then(async (s) => {
         setState(s)
-        setAudit(a)
+        // the change log is for the admin only; the server refuses it to everyone else
+        setAudit(s.isAdmin ? await api.audit(50).catch(() => []) : [])
       })
       .catch(() => setConn('offline'))
       .finally(() => (busy.current = null))

@@ -137,7 +137,7 @@ api.get('/stream', (req, res) => {
   req.on('close', () => clients.delete(res))
 })
 
-api.get('/audit', (req, res) => {
+api.get('/audit', requireAdmin, (req, res) => {
   const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50))
   res.json(store.listAudit(limit))
 })
