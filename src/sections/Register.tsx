@@ -76,7 +76,7 @@ export function Register() {
               <th className="bg-blue-50/60 py-3 text-start font-medium text-blue-700">الفئة</th>
               <th className="bg-blue-50/60 py-3 text-start font-medium text-blue-700">المستوى</th>
               <th className="bg-blue-50/60 py-3 text-center font-medium text-blue-700">درجة الأهمية</th>
-              <th className="bg-blue-50/60 py-3 text-center font-medium text-blue-700">درجة الطوارئ</th>
+              <th className="bg-blue-50/60 py-3 text-center font-medium text-blue-700">مستوى الاستعجال</th>
               <th className="bg-blue-50/60 py-3 text-start font-medium text-blue-700">المدة المتوقعة</th>
               <th className="py-3 text-center font-medium">الجهد</th>
               <th className="w-40 py-3 text-start font-medium">الإنجاز</th>
@@ -171,7 +171,7 @@ export function Register() {
                         </dd>
                       </div>
                       <div>
-                        <dt>الطوارئ</dt>
+                        <dt>الاستعجال</dt>
                         <dd className="text-md text-fg-primary">
                           <Num v={t.urgency} />
                         </dd>
