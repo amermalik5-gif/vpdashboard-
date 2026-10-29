@@ -17,7 +17,7 @@ export function Hero() {
   const soon = addDays(now, 14)
   const stats = [
     { n: open.length, name: 'مفتوحة' },
-    { n: open.filter((t) => (t.priority ?? 0) >= 6 && (t.urgency ?? 0) >= 6).length, name: 'مهمة وملحّة', hot: true },
+    { n: open.filter((t) => (t.priority ?? 0) >= 6 && (t.urgency ?? 0) >= 6).length, name: 'مهمة وطارئة', hot: true },
     { n: open.filter((t) => t.progress < 20).length, name: 'إنجاز أقل من ٢٠٪', hot: true },
     {
       n: open.filter((t) => {
