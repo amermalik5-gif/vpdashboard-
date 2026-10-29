@@ -1,0 +1,6 @@
+/* Neo Sans W23 — NWC brand typeface (licensed; NWC web use confirmed).
+   Self-hosted WOFF2 converted from the design-system TTFs. Covers Arabic + Latin. */
+@font-face { font-family: 'Neo Sans W23'; font-weight: 300; font-style: normal; font-display: swap; src: url('../assets/fonts/neo-sans-w23-light.woff2') format('woff2'); }
+@font-face { font-family: 'Neo Sans W23'; font-weight: 400; font-style: normal; font-display: swap; src: url('../assets/fonts/neo-sans-w23-regular.woff2') format('woff2'); }
+@font-face { font-family: 'Neo Sans W23'; font-weight: 500; font-style: normal; font-display: swap; src: url('../assets/fonts/neo-sans-w23-medium.woff2') format('woff2'); }
+@font-face { font-family: 'Neo Sans W23'; font-weight: 700; font-style: normal; font-display: swap; src: url('../assets/fonts/neo-sans-w23-bold.woff2') format('woff2'); }

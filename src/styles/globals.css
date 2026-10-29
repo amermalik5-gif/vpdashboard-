@@ -1,0 +1,176 @@
+@import './fonts.css';
+@import './tokens.css';
+@import './site-tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: var(--font-body);
+    color: var(--fg-primary);
+    background: var(--bg-page);
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    /* sections land flush under the fixed header (in-section targets add 16px in scrollTo) */
+    scroll-padding-top: var(--header-h);
+    /* positioned root: framer-motion's useScroll({ target }) measures against it */
+    position: relative;
+    /* classic (Windows) scrollbars: keep the gutter when a dialog locks scrolling, so the
+       page and the fixed header don't jump sideways */
+    scrollbar-gutter: stable;
+  }
+  body {
+    margin: 0;
+    /* no single-word last lines anywhere (labels, list items, TOCs) — headings use balance */
+    text-wrap: pretty;
+    font-size: var(--text-md-size);
+    line-height: var(--leading-normal);
+    background: var(--bg-page);
+    overflow-x: hidden;
+  }
+  ::selection {
+    background: var(--nwc-blue-100);
+    color: var(--nwc-blue-900);
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  img,
+  svg,
+  video,
+  canvas {
+    display: block;
+    max-width: 100%;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: 500;
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  /* DS focus ring (brand blue). Drawn with `outline` so component shadows
+     (shadow-xsm/sm on cards and buttons) can never hide it. */
+  :focus-visible {
+    outline: 2px solid var(--nwc-blue-600);
+    outline-offset: 2px;
+  }
+  [data-tone='dark'] :focus-visible,
+  .bg-brand-gradient :focus-visible {
+    outline-color: rgba(255, 255, 255, 0.9);
+  }
+  [data-tone='dark'] [data-tone='light'] :focus-visible {
+    outline-color: var(--nwc-blue-600);
+  }
+  /* headings receive focus programmatically after in-page navigation (so the next Tab
+     continues from there); they are not controls, so no ring */
+  :is(h1, h2, h3)[tabindex='-1']:focus {
+    outline: none;
+  }
+  bdi[dir='ltr'] {
+    unicode-bidi: isolate;
+  }
+}
+
+@layer components {
+  /* DS web grid: 80px page margin, 1280px content */
+  /* RTL page: inline-start = right edge, inline-end = left edge; safe-area insets keep
+     content clear of the notch on landscape phones (viewport-fit=cover) */
+  .container-page {
+    --page-margin: var(--grid-margin-mobile);
+    width: 100%;
+    max-width: calc(1280px + 2 * 80px);
+    margin-inline: auto;
+    padding-inline-start: max(var(--page-margin), env(safe-area-inset-right));
+    padding-inline-end: max(var(--page-margin), env(safe-area-inset-left));
+  }
+  @media (min-width: 768px) {
+    .container-page {
+      --page-margin: 48px;
+    }
+  }
+  @media (min-width: 1280px) {
+    .container-page {
+      --page-margin: var(--grid-margin-web);
+    }
+  }
+
+  /* DS eyebrow: small label above section titles */
+  .eyebrow {
+    font-size: var(--text-sm-size);
+    line-height: var(--text-sm-lh);
+    font-weight: 500;
+    color: var(--brand);
+  }
+  /* DS accent bar (64×4) used above display titles */
+  .accent-bar {
+    display: block;
+    width: 64px;
+    height: 4px;
+    border-radius: 2px;
+    background: currentColor;
+  }
+
+  .hero-title {
+    font-size: clamp(2.4rem, 1.5rem + 3.4vw, 4.1rem);
+    line-height: 1.12;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+  /* short laptop windows: the title scales with the height too, so the hero fits one screen */
+  @media (min-width: 768px) and (max-height: 860px) {
+    .hero-title {
+      font-size: clamp(2.2rem, 7vh, 4.1rem);
+    }
+  }
+  .display-fluid {
+    font-size: clamp(1.75rem, 1.35rem + 1.6vw, 2.5rem);
+    line-height: 1.25;
+  }
+
+  /* Cultural watermark (Arabian horse + calligraphy) — DS: 8–15%.
+     The source artwork is a single motif (not a seamless tile), so it is placed
+     once on the end side rather than repeated. */
+  .pattern-watermark {
+    background-image: var(--pattern-url);
+    background-repeat: no-repeat;
+    background-size: auto 115%;
+    background-position: left -2rem center;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+
+/* print-free dashboard extras */
+@layer components {
+  .field {
+    @apply h-11 w-full rounded-md border border-line-subtle bg-surface px-3 text-sm text-fg-primary transition-colors duration-fast placeholder:text-fg-muted hover:border-blue-200 focus:border-brand focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-fg-muted;
+  }
+  textarea.field {
+    @apply h-auto py-2.5 leading-relaxed;
+  }
+  .field-label {
+    @apply mb-1.5 block text-sm font-medium text-fg-primary;
+  }
+  .field-hint {
+    @apply mt-1 text-xs text-fg-tertiary;
+  }
+}
