@@ -135,12 +135,16 @@ export function TaskSheet() {
             <label htmlFor="t-cat" className="field-label">
               الفئة
             </label>
-            <input id="t-cat" className="field" list="t-cats" maxLength={80} value={f.category} onChange={(e) => set('category', e.target.value)} />
-            <datalist id="t-cats">
+            <select id="t-cat" className="field" value={f.category} onChange={(e) => set('category', e.target.value)}>
+              <option value="">اختر الفئة</option>
               {categories.map((c) => (
-                <option key={c} value={c} />
+                <option key={c} value={c}>
+                  {c}
+                </option>
               ))}
-            </datalist>
+              {/* a value the admin has since removed from the list stays visible instead of silently disappearing */}
+              {f.category && !categories.includes(f.category) && <option value={f.category}>{f.category} (خارج القائمة)</option>}
+            </select>
           </div>
           <div>
             <label htmlFor="t-label" className="field-label">

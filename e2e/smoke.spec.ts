@@ -15,6 +15,11 @@ test('anyone can add and edit a task; the change log names them', async ({ page 
   await page.goto('/')
   await page.locator('#register').getByRole('button', { name: 'إضافة مهمة' }).click()
   await page.getByLabel('عنوان المهمة').fill('مهمة اختبار')
+  // the category is a drop-down of the team's services
+  const category = page.getByLabel('الفئة')
+  await expect(category).toHaveJSProperty('tagName', 'SELECT')
+  await expect(category.locator('option', { hasText: 'تصميم العروض' })).toHaveCount(1)
+  await category.selectOption('تصميم العروض')
   await page.getByRole('button', { name: 'إضافة المهمة' }).click()
   // first save asks for a name
   await page.getByLabel('الاسم').fill('سارة')

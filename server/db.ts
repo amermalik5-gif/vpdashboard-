@@ -136,7 +136,17 @@ export const DEFAULT_SETTINGS: Settings = {
     { id: 'internal', name: 'داخلي' },
     { id: 'other', name: 'أخرى' },
   ],
-  categories: ['فعالية', 'جائزة', 'شهادة', 'برنامج', 'محتوى', 'مبادرة', 'بند مجلس الإدارة'],
+  categories: [
+    'تصميم العروض',
+    'ترجمة العروض',
+    'التصميم الجرافيكي',
+    'كتابة المحتوى',
+    'إدارة الفعاليات وتنسيق الاجتماعات',
+    'فيديو',
+    'فيديو موشن جرافيك',
+    'الإعلانات',
+    'أخرى',
+  ],
   eventTypes: [
     { id: 'award', name: 'جائزة' },
     { id: 'certification', name: 'شهادة' },
@@ -180,5 +190,31 @@ export const getAudit = (id: number): AuditEntry | undefined => {
 /* first run: the items from the kickoff sketch, waiting for the VP to confirm */
 const empty = (db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n === 0 && (db.prepare('SELECT COUNT(*) AS n FROM audit').get() as { n: number }).n === 0
 if (empty) db.transaction(() => seed(insertTask, insertEvent))()
+
+/* one-time migrations, recorded in settings.migrations so each runs once */
+const done = new Set<string>(JSON.parse((db.prepare("SELECT value FROM settings WHERE key = 'migrations'").get() as { value: string } | undefined)?.value ?? '[]'))
+const migrate = (id: string, fn: () => void) => {
+  if (done.has(id)) return
+  db.transaction(() => {
+    fn()
+    done.add(id)
+    db.prepare("INSERT INTO settings (key, value) VALUES ('migrations', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify([...done]))
+  })()
+}
+
+// categories became the team's services list (drop-down in the task form)
+migrate('services-categories', () => {
+  const OLD = ['فعالية', 'جائزة', 'شهادة', 'برنامج', 'محتوى', 'مبادرة', 'بند مجلس الإدارة']
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'categories'").get() as { value: string } | undefined
+  if (row && JSON.stringify(JSON.parse(row.value)) === JSON.stringify(OLD)) db.prepare("DELETE FROM settings WHERE key = 'categories'").run()
+  const byTitle: Record<string, string> = { 'فيلم توعوي': 'فيديو', 'الإعلانات والأخبار': 'الإعلانات' }
+  const byCategory: Record<string, string> = { فعالية: 'إدارة الفعاليات وتنسيق الاجتماعات', محتوى: 'كتابة المحتوى' }
+  for (const t of listTasks()) {
+    if (!OLD.includes(t.category)) continue
+    const next = byTitle[t.title] ?? byCategory[t.category] ?? 'أخرى'
+    db.prepare('UPDATE tasks SET category = ? WHERE id = ?').run(next, t.id)
+    audit({ entity: 'task', entityId: t.id, entityTitle: t.title, action: 'update', field: 'category', old: t.category, new: next, by: 'النظام' })
+  }
+})
 
 export const DB_FILE = FILE

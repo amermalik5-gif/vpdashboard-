@@ -123,7 +123,7 @@ export function AdminPanel() {
           <OptionList title="أنواع الفعاليات" note="تظهر عند إضافة فعالية." items={s.eventTypes} onChange={(eventTypes) => setS({ ...s, eventTypes })} />
           <div>
             <h4 className="font-medium">الفئات المقترحة</h4>
-            <p className="mb-3 text-xs text-fg-tertiary">فئة في كل سطر. تظهر كاقتراحات، ويمكن كتابة فئة أخرى.</p>
+            <p className="mb-3 text-xs text-fg-tertiary">فئة في كل سطر. تظهر في القائمة المنسدلة عند إضافة مهمة.</p>
             <label htmlFor="cats" className="sr-only">
               الفئات
             </label>
