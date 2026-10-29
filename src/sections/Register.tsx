@@ -75,8 +75,8 @@ export function Register() {
               <th className="py-3 text-start font-medium">المهمة</th>
               <th className="bg-blue-50/60 py-3 text-start font-medium text-blue-700">الفئة</th>
               <th className="bg-blue-50/60 py-3 text-start font-medium text-blue-700">المستوى</th>
-              <th className="bg-blue-50/60 py-3 text-center font-medium text-blue-700">الأولوية</th>
-              <th className="bg-blue-50/60 py-3 text-center font-medium text-blue-700">الإلحاح</th>
+              <th className="bg-blue-50/60 py-3 text-center font-medium text-blue-700">درجة الأهمية</th>
+              <th className="bg-blue-50/60 py-3 text-center font-medium text-blue-700">درجة الطوارئ</th>
               <th className="bg-blue-50/60 py-3 text-start font-medium text-blue-700">المدة المتوقعة</th>
               <th className="py-3 text-center font-medium">الجهد</th>
               <th className="w-40 py-3 text-start font-medium">الإنجاز</th>
@@ -165,13 +165,13 @@ export function Register() {
                     </div>
                     <dl className="mt-3 grid grid-cols-4 gap-2 text-center text-xs text-fg-tertiary">
                       <div>
-                        <dt>الأولوية</dt>
+                        <dt>الأهمية</dt>
                         <dd className="text-md text-fg-primary">
                           <Num v={t.priority} />
                         </dd>
                       </div>
                       <div>
-                        <dt>الإلحاح</dt>
+                        <dt>الطوارئ</dt>
                         <dd className="text-md text-fg-primary">
                           <Num v={t.urgency} />
                         </dd>
