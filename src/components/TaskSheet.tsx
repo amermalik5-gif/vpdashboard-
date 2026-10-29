@@ -130,7 +130,7 @@ export function TaskSheet() {
           <input id="t-title" className="field h-12 text-md" required maxLength={160} value={f.title} onChange={(e) => set('title', e.target.value)} placeholder="مثال: اليوم الرقمي ١٠" />
         </div>
 
-        <Group tone="vp" title="يحددها نائب الرئيس" note="الفئة والمستوى ودرجة الأهمية ودرجة الطوارئ والمدة المتوقعة تحدد موقع المهمة في المصفوفة.">
+        <Group tone="vp" title="يحددها نائب الرئيس" note="الفئة والمستوى ودرجة الأهمية ومستوى الاستعجال والمدة المتوقعة تحدد موقع المهمة في المصفوفة.">
           <div>
             <label htmlFor="t-cat" className="field-label">
               الفئة
@@ -156,7 +156,7 @@ export function TaskSheet() {
             </select>
           </div>
           <Scale id="t-p" label="درجة الأهمية (مهمة)" hint="١٠ = مهمة جدًا" value={f.priority} min={0} max={10} onChange={(v) => set('priority', v)} />
-          <Scale id="t-u" label="درجة الطوارئ (طارئة)" hint="١٠ = طارئة جدًا" value={f.urgency} min={0} max={10} onChange={(v) => set('urgency', v)} />
+          <Scale id="t-u" label="مستوى الاستعجال (طارئة)" hint="١٠ = طارئة جدًا" value={f.urgency} min={0} max={10} onChange={(v) => set('urgency', v)} />
           <div className="sm:col-span-2">
             <label htmlFor="t-exp" className="field-label">
               المدة المتوقعة

@@ -113,7 +113,7 @@ export function Matrix() {
     const priority = Math.round(((BOX.y1 - p.y) / (BOX.y1 - BOX.y0)) * 10)
     setDrag(null)
     patchLocal(id, { priority, urgency })
-    run(() => api.updateTask(id, { priority, urgency }), `نُقلت إلى أهمية ${toArabicDigits(priority)} وطوارئ ${toArabicDigits(urgency)}`)
+    run(() => api.updateTask(id, { priority, urgency }), `نُقلت إلى أهمية ${toArabicDigits(priority)} واستعجال ${toArabicDigits(urgency)}`)
   }
 
   const counts = (id: string) => tasks.filter((t) => t.label === id).length
@@ -122,7 +122,7 @@ export function Matrix() {
     <Card padding="none" className="min-w-0 p-4 md:p-6">
       <div className="mb-4 flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="text-xl font-medium">الأهمية والطوارئ</h3>
+          <h3 className="text-xl font-medium">الأهمية والاستعجال</h3>
           <p className="text-sm text-fg-tertiary">حجم الفقاعة = الجهد · لونها = نسبة الإنجاز · اسحبها لتغيير ترتيبها</p>
         </div>
         <FilterChips
@@ -137,7 +137,7 @@ export function Matrix() {
 
       <div ref={wrap}>
         <svg ref={svg} viewBox={`0 0 ${W} ${H}`} className="w-full touch-none select-none"
-          style={{ direction: 'ltr' }} role="group" aria-label="مصفوفة المهام حسب درجة الأهمية ودرجة الطوارئ">
+          style={{ direction: 'ltr' }} role="group" aria-label="مصفوفة المهام حسب درجة الأهمية ومستوى الاستعجال">
           {/* quadrants */}
           <rect x={BOX.x0} y={BOX.y0} width={sx(5) - BOX.x0} height={sy(5) - BOX.y0} fill="var(--danger-50)" />
           <rect x={sx(5)} y={BOX.y0} width={BOX.x1 - sx(5)} height={sy(5) - BOX.y0} fill="var(--nwc-blue-50)" />
@@ -156,7 +156,7 @@ export function Matrix() {
           ))}
           <rect x={BOX.x0} y={BOX.y0} width={BOX.x1 - BOX.x0} height={BOX.y1 - BOX.y0} fill="none" stroke="var(--neutral-200)" />
           <text x={(BOX.x0 + BOX.x1) / 2} y={H - 18} textAnchor="middle" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)">
-            ← درجة الطوارئ (٠ غير طارئة · ١٠ طارئة جدًا)
+            ← مستوى الاستعجال (٠ غير طارئة · ١٠ طارئة جدًا)
           </text>
           <text x={W - 10} y={(BOX.y0 + BOX.y1) / 2} textAnchor="middle" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)" transform={`rotate(90 ${W - 10} ${(BOX.y0 + BOX.y1) / 2})`}>
             درجة الأهمية ←
@@ -176,13 +176,13 @@ export function Matrix() {
                 opacity={dim ? 0.25 : 1}
                 tabIndex={0}
                 role="button"
-                aria-label={`${p.t.title}: أهمية ${p.t.priority}، طوارئ ${p.t.urgency}، جهد ${p.t.effort ?? '–'}، إنجاز ${p.t.progress}٪`}
+                aria-label={`${p.t.title}: أهمية ${p.t.priority}، استعجال ${p.t.urgency}، جهد ${p.t.effort ?? '–'}، إنجاز ${p.t.progress}٪`}
                 onPointerDown={(e) => onDown(e, p.t.id)}
                 onPointerMove={(e) => onMove(e, p.t.id)}
                 onPointerUp={(e) => onUp(e, p.t.id)}
                 onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(p.t.id))}
               >
-                <title>{`${p.t.title}\nالأهمية ${toArabicDigits(p.t.priority ?? 0)} · الطوارئ ${toArabicDigits(p.t.urgency ?? 0)} · الجهد ${toArabicDigits(p.t.effort ?? 0)} · الإنجاز ${toArabicDigits(p.t.progress)}٪`}</title>
+                <title>{`${p.t.title}\nالأهمية ${toArabicDigits(p.t.priority ?? 0)} · الاستعجال ${toArabicDigits(p.t.urgency ?? 0)} · الجهد ${toArabicDigits(p.t.effort ?? 0)} · الإنجاز ${toArabicDigits(p.t.progress)}٪`}</title>
                 <circle cx={x} cy={y} r={p.r} fill={st.color} fillOpacity={0.85} stroke="#fff" strokeWidth={2} />
                 {p.t.draft && <circle cx={x} cy={y} r={p.r + 4} fill="none" stroke={st.color} strokeDasharray="3 3" strokeWidth={1.5} />}
                 {p.r >= 22 && (
@@ -235,7 +235,7 @@ export function Matrix() {
       </div>
       {unplaced.length > 0 && (
         <p className="mt-3 text-sm text-fg-tertiary">
-          لا تظهر في المصفوفة لأنها بلا درجة أهمية أو طوارئ:{' '}
+          لا تظهر في المصفوفة لأنها بلا درجة أهمية أو مستوى استعجال:{' '}
           {unplaced.map((t, i) => (
             <span key={t.id}>
               {i > 0 && '، '}

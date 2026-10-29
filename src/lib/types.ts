@@ -92,7 +92,7 @@ export const FIELD_NAMES: Record<string, string> = {
   category: 'الفئة',
   label: 'المستوى',
   priority: 'درجة الأهمية',
-  urgency: 'درجة الطوارئ',
+  urgency: 'مستوى الاستعجال',
   expectation: 'المدة المتوقعة',
   effort: 'الجهد',
   progress: 'نسبة الإنجاز',
