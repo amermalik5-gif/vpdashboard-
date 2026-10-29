@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Plus, X } from 'lucide-react'
+import { DatabaseBackup, Download, FileSpreadsheet, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
+import { toArabicDigits } from '@/lib/format'
 import type { Option, Settings } from '@/lib/types'
 
 const slug = (name: string, taken: Option[]) => {
@@ -91,39 +92,75 @@ export function AdminPanel() {
     )
 
   return (
-    <Card padding="none" className="p-4 md:p-6">
-      <div className="grid gap-8 md:grid-cols-3">
-        <OptionList
-          title="المستويات"
-          note="تظهر في عمود المستوى ومسارات الخط الزمني. إزالة مستوى تنقل مهامه إلى «بدون مستوى»."
-          items={s.labels}
-          onChange={(labels) => setS({ ...s, labels })}
-        />
-        <OptionList title="أنواع الفعاليات" note="تظهر عند إضافة فعالية." items={s.eventTypes} onChange={(eventTypes) => setS({ ...s, eventTypes })} />
-        <div>
-          <h4 className="font-medium">الفئات المقترحة</h4>
-          <p className="mb-3 text-xs text-fg-tertiary">فئة في كل سطر. تظهر كاقتراحات، ويمكن كتابة فئة أخرى.</p>
-          <label htmlFor="cats" className="sr-only">
-            الفئات
-          </label>
-          <textarea id="cats" rows={8} className="field" value={cats} onChange={(e) => setCats(e.target.value)} />
+    <div className="grid gap-6">
+      <Card padding="none" className="p-4 md:p-6">
+        <div className="grid gap-8 md:grid-cols-3">
+          <OptionList
+            title="المستويات"
+            note="تظهر في عمود المستوى ومسارات الخط الزمني. إزالة مستوى تنقل مهامه إلى «بدون مستوى»."
+            items={s.labels}
+            onChange={(labels) => setS({ ...s, labels })}
+          />
+          <OptionList title="أنواع الفعاليات" note="تظهر عند إضافة فعالية." items={s.eventTypes} onChange={(eventTypes) => setS({ ...s, eventTypes })} />
+          <div>
+            <h4 className="font-medium">الفئات المقترحة</h4>
+            <p className="mb-3 text-xs text-fg-tertiary">فئة في كل سطر. تظهر كاقتراحات، ويمكن كتابة فئة أخرى.</p>
+            <label htmlFor="cats" className="sr-only">
+              الفئات
+            </label>
+            <textarea id="cats" rows={8} className="field" value={cats} onChange={(e) => setCats(e.target.value)} />
+          </div>
         </div>
-      </div>
-      <div className="mt-6 flex items-center gap-3 border-t border-line-subtle pt-4">
-        <Button onClick={save} disabled={!dirty}>
-          حفظ القوائم
-        </Button>
-        {dirty && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setS(saved)
-              setCats(saved.categories.join('\n'))
-            }}
-          >
-            تجاهل التغييرات
+        <div className="mt-6 flex items-center gap-3 border-t border-line-subtle pt-4">
+          <Button onClick={save} disabled={!dirty}>
+            حفظ القوائم
           </Button>
-        )}
+          {dirty && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setS(saved)
+                setCats(saved.categories.join('\n'))
+              }}
+            >
+              تجاهل التغييرات
+            </Button>
+          )}
+        </div>
+      </Card>
+      <Backup />
+    </div>
+  )
+}
+
+const linkBtn =
+  'inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-md px-[18px] text-sm font-medium transition-colors duration-fast'
+
+/** Download a copy of everything on the board. Plain links: the browser saves the file with the admin cookie. */
+function Backup() {
+  const { state } = useBoardCtx()
+  return (
+    <Card padding="none" className="p-4 md:p-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="max-w-prose">
+          <h4 className="flex items-center gap-2 font-medium">
+            <DatabaseBackup size={18} aria-hidden className="text-brand" />
+            النسخ الاحتياطي
+          </h4>
+          <p className="mt-1 text-sm text-fg-secondary">
+            نزّل نسخة من كل ما في اللوحة: {toArabicDigits(state?.tasks.length ?? 0)} مهام، و{toArabicDigits(state?.events.length ?? 0)} فعاليات، والإعدادات، وسجل التعديلات كاملًا. يُنصح بتنزيلها قبل أي تعديل كبير وفي نهاية كل شهر.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <a href="/api/backup" download className={linkBtn + ' bg-brand text-white hover:bg-brand-hover'}>
+            <Download size={18} aria-hidden />
+            نسخة احتياطية كاملة (JSON)
+          </a>
+          <a href="/api/backup/tasks.csv" download className={linkBtn + ' border border-brand bg-surface text-brand hover:bg-blue-50'}>
+            <FileSpreadsheet size={18} aria-hidden />
+            جدول المهام (Excel)
+          </a>
+        </div>
       </div>
     </Card>
   )

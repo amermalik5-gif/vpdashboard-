@@ -142,6 +142,55 @@ api.get('/audit', (req, res) => {
   res.json(store.listAudit(limit))
 })
 
+/* ---------- backups (admin): a full JSON copy, and the tasks as a spreadsheet ---------- */
+const stamp = () => new Date().toISOString().slice(0, 10)
+
+api.get('/backup', requireAdmin, (_req, res) => {
+  const body = {
+    app: 'vp-dashboard',
+    format: 1,
+    exportedAt: new Date().toISOString(),
+    settings: store.getSettings(),
+    tasks: store.listTasks(),
+    events: store.listEvents(),
+    audit: store.allAudit(),
+  }
+  res.set('Content-Disposition', `attachment; filename="vp-dashboard-backup-${stamp()}.json"`)
+  res.type('application/json').send(JSON.stringify(body, null, 2))
+})
+
+const csvCell = (v: unknown) => {
+  const s = v == null ? '' : String(v)
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+api.get('/backup/tasks.csv', requireAdmin, (_req, res) => {
+  const { labels } = store.getSettings()
+  const labelName = (id: string) => labels.find((l) => l.id === id)?.name ?? id
+  const head = ['المهمة', 'الفئة', 'المستوى', 'الأولوية', 'الإلحاح', 'المدة المتوقعة', 'الجهد', 'نسبة الإنجاز', 'تاريخ البدء', 'تاريخ الإطلاق', 'المسؤول', 'الملاحظات', 'بانتظار التأكيد', 'آخر تعديل بواسطة', 'آخر تعديل']
+  const rows = store.listTasks().map((t) => [
+    t.title,
+    t.category,
+    labelName(t.label),
+    t.priority,
+    t.urgency,
+    t.expectation ? EXPECTATIONS[t.expectation].name : '',
+    t.effort,
+    t.progress,
+    t.start,
+    t.end,
+    t.owner,
+    t.notes,
+    t.draft ? 'نعم' : 'لا',
+    t.updatedBy,
+    new Date(t.updatedAt).toISOString().replace('T', ' ').slice(0, 16),
+  ])
+  // UTF-8 BOM so Excel opens the Arabic text correctly
+  const csv = '﻿' + [head, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n')
+  res.set('Content-Disposition', `attachment; filename="vp-dashboard-tasks-${stamp()}.csv"`)
+  res.type('text/csv; charset=utf-8').send(csv)
+})
+
 /* ---------- tasks: everyone adds and edits, admin deletes ---------- */
 api.post(
   '/tasks',

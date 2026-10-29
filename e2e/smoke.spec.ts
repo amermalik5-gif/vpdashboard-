@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 
 test('renders right-to-left with the seeded board and no errors', async ({ page }) => {
@@ -53,4 +54,27 @@ test('a save in one tab shows up live in another', async ({ browser }) => {
   const t = state.tasks.find((x: { title: string }) => x.title === 'فيلم توعوي')
   await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'live' }, data: { title: 'فيلم توعوي محدّث' } })
   await expect(b.locator('table').getByText('فيلم توعوي محدّث')).toBeVisible({ timeout: 10_000 })
+})
+
+test('admin can download a full backup and a tasks spreadsheet', async ({ page, request }) => {
+  expect((await request.get('/api/backup')).status()).toBe(401)
+  expect((await request.get('/api/backup/tasks.csv')).status()).toBe(401)
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'دخول المشرف' }).click()
+  await page.getByLabel('كلمة المرور').fill('e2e-secret')
+  await page.getByRole('button', { name: 'دخول', exact: true }).click()
+
+  const [json] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: /نسخة احتياطية كاملة/ }).click()])
+  expect(json.suggestedFilename()).toMatch(/^vp-dashboard-backup-\d{4}-\d{2}-\d{2}\.json$/)
+  const backup = JSON.parse(readFileSync(await json.path(), 'utf8'))
+  expect(backup.tasks.length).toBeGreaterThan(0)
+  expect(backup.settings.labels.length).toBe(5)
+  expect(Array.isArray(backup.audit)).toBe(true)
+
+  const [csv] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: /Excel/ }).click()])
+  const text = readFileSync(await csv.path(), 'utf8')
+  expect(text.charCodeAt(0)).toBe(0xfeff)
+  expect(text).toContain('تاريخ الإطلاق')
+  expect(text).toContain('اليوم الرقمي ١٠')
 })
