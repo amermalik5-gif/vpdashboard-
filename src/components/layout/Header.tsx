@@ -47,16 +47,17 @@ function ScrollProgress() {
  * white glass with the colourful logo once the page scrolls.
  */
 export function Header({ onSignIn, onSignOut }: { onSignIn: () => void; onSignOut: () => void }) {
-  const scrolled = useScrolled(48)
+  const scrolled = useScrolled(8)
   const { isAdmin, conn } = useBoardCtx()
-  const onDark = !scrolled
+  // a working tool, not a story: the bar stays navy (the booklet's dark-section glass) from the start
+  const onDark = true
 
   return (
     <header
-      data-tone={onDark ? 'dark' : 'light'}
+      data-tone="dark"
       className={cn(
-        'fixed inset-x-0 top-0 z-header pt-[env(safe-area-inset-top)] transition-[background-color,box-shadow,border-color] duration-slow ease-standard',
-        scrolled ? 'border-b border-line-subtle/80 bg-surface/85 shadow-xsm backdrop-blur-glass' : 'border-b border-transparent bg-transparent',
+        'fixed inset-x-0 top-0 z-header border-b border-white/10 bg-blue-900 pt-[env(safe-area-inset-top)] transition-shadow duration-slow ease-standard',
+        scrolled && 'shadow-sm',
       )}
     >
       <ScrollProgress />

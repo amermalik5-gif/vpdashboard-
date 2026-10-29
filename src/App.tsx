@@ -164,8 +164,8 @@ function Board() {
             <p className="rounded-xl border border-danger-100 bg-danger-50 p-4 text-danger-700">تعذّر تحميل اللوحة. تأكد من الاتصال ثم حدّث الصفحة.</p>
           </div>
         )}
-        <Section id="matrix" spacing="none" className="py-12 md:py-16" labelledBy="matrix-title">
-          <SectionHeading id="matrix-title" eyebrow="الصورة الكاملة" title="الأولويات والطاقة والفعاليات" intro="كل مهمة فقاعة: موقعها من الأولوية والإلحاح، وحجمها من الجهد، ولونها من نسبة الإنجاز." />
+        <Section id="matrix" spacing="none" className="py-8" labelledBy="matrix-title">
+          <SectionHeading id="matrix-title" title="الأولويات والطاقة والفعاليات" className="sr-only" />
           <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
             <Matrix />
             <div className="grid content-start gap-6 md:grid-cols-2 xl:grid-cols-1">
@@ -174,21 +174,21 @@ function Board() {
             </div>
           </div>
         </Section>
-        <Section id="register" tone="soft" spacing="none" className="py-12 md:py-16" labelledBy="register-title">
-          <SectionHeading id="register-title" eyebrow="سجل المهام" title="كل المهام في جدول واحد" intro="اضغط على أي مهمة لتعديلها. يمكن لأي شخص لديه الرابط الإضافة والتعديل، ويظهر اسمه في سجل التعديلات." />
+        <Section id="register" tone="soft" spacing="none" className="py-8" labelledBy="register-title">
+          <SectionHeading id="register-title" title="سجل المهام" note="اضغط على أي مهمة لتعديلها" />
           <Register />
         </Section>
-        <Section id="timeline" spacing="none" className="py-12 md:py-16" labelledBy="timeline-title">
-          <SectionHeading id="timeline-title" eyebrow="الخط الزمني" title="المهام والفعاليات عبر الأشهر" intro="مسار لكل مستوى، والفعاليات في الأعلى. الخط الذهبي المتقطع هو اليوم." />
+        <Section id="timeline" spacing="none" className="py-8" labelledBy="timeline-title">
+          <SectionHeading id="timeline-title" title="الخط الزمني" />
           <Timeline />
         </Section>
-        <Section id="activity" tone="soft" spacing="none" className="py-12 md:py-16" labelledBy="activity-title">
-          <SectionHeading id="activity-title" eyebrow="الشفافية" title="سجل التعديلات" intro="آخر ٥٠ تعديلًا ومن قام بها. يستطيع المشرف استرجاع أي قيمة سابقة أو عنصر محذوف." />
+        <Section id="activity" tone="soft" spacing="none" className="py-8" labelledBy="activity-title">
+          <SectionHeading id="activity-title" title="سجل التعديلات" note="آخر ٥٠ تعديلًا ومن قام بها" />
           <Activity />
         </Section>
         {isAdmin && (
-          <Section id="admin" spacing="none" className="py-12 md:py-16" labelledBy="admin-title">
-            <SectionHeading id="admin-title" eyebrow="للمشرف فقط" title="إعدادات اللوحة" intro="القوائم التي يختار منها الجميع. الطاقة الأسبوعية تُعدَّل من مؤشر الطاقة." />
+          <Section id="admin" spacing="none" className="py-8" labelledBy="admin-title">
+            <SectionHeading id="admin-title" title="إعدادات اللوحة" note="للمشرف فقط" />
             <AdminPanel />
           </Section>
         )}
