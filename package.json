@@ -1,0 +1,42 @@
+{
+  "name": "nwc-vp-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "لوحة أولويات نائب الرئيس — المهام والفعاليات والطاقة الاستيعابية للفريق",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "tsx watch server/index.ts",
+    "dev:web": "vite",
+    "build": "tsc -b && vite build",
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "typecheck": "tsc -b --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "express": "^4.21.2",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@playwright/test": "^1.64.1",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.20.5",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.6.1",
+    "concurrently": "^9.1.2",
+    "framer-motion": "^11.18.2",
+    "lucide-react": "^1.57.0",
+    "postcss": "^8.5.30",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.19",
+    "typescript": "5.7",
+    "vite": "^6.4.4"
+  }
+}

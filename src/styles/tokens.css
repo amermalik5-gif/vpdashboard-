@@ -1,0 +1,307 @@
+/* Ported verbatim from the NWC Design System V3 (branch `design-system`,
+   design-system/project/colors_and_type.css). Do not edit values here —
+   change them in the design system and re-port. Site-specific semantic
+   tokens live in ./site-tokens.css. */
+
+/* =========================================================================
+   NWC Design System v2 — Colors + Typography
+   National Water Company (شركة المياه الوطنية), Saudi Arabia
+   ========================================================================= */
+
+/* ---- Web fonts (self-hosted WOFF2 in src/styles/fonts.css) ----------------------------------------------------------
+   Brand fonts (LICENSED — do not redistribute):
+     • Neo Sans W23 — self-hosted from /fonts (Light 300, Regular 400,
+       Medium 500, Bold 700, Black 800, Ultra 900). Covers Latin AND Arabic
+       glyph sets in this W23 family.
+   Free supplements via Google Fonts:
+     • Inter (utility/UI numerics), Roboto Mono (small numeric labels)
+-------------------------------------------------------------------------- */
+/* (site build) The DS's Google Fonts @import is intentionally removed: Inter is self-hosted via
+   @fontsource (src/main.tsx) — no render-blocking third-party request; mono falls back to system fonts. */
+
+
+:root {
+  /* ===== PRIMITIVE COLORS ============================================== */
+
+  /* Primary — NWC Blue (the signature brand color) */
+  --nwc-blue-50:   #e6f1fa;
+  --nwc-blue-100:  #b0d3f0;
+  --nwc-blue-200:  #8abde8;
+  --nwc-blue-300:  #549fde;
+  --nwc-blue-400:  #338dd7;
+  --nwc-blue-500:  #0070cd;   /* signature brand */
+  --nwc-blue-600:  #0066bb;
+  --nwc-blue-700:  #005092;
+  --nwc-blue-800:  #003e71;
+  --nwc-blue-900:  #002f56;
+
+  /* Secondary — Teal (Figma: "Secondary" ramp, verified 2026-05-07) */
+  --nwc-green-50:  #e6f7f4;
+  --nwc-green-100: #b0e6dc;
+  --nwc-green-200: #8adacb;
+  --nwc-green-300: #55c9b3;
+  --nwc-green-400: #34bea4;
+  --nwc-green-500: #01ae8d;   /* Figma Secondary-500 */
+  --nwc-green-600: #019e80;
+  --nwc-green-700: #017c64;
+  --nwc-green-800: #01604e;
+  --nwc-green-900: #00493b;
+
+  /* Info — Blue (Figma: "Blue" ramp, verified 2026-05-07) */
+  --info-50:  #eaf4ff;
+  --info-100: #beddfd;
+  --info-200: #9fccfd;
+  --info-300: #73b5fc;
+  --info-400: #58a6fb;
+  --info-500: #2e90fa;
+  --info-600: #2a83e4;
+  --info-700: #2166b2;
+  --info-800: #194f8a;
+  --info-900: #133c69;
+
+  /* Success — Green (Figma: "Green" ramp, verified 2026-05-07) */
+  --success-50:  #e8f7f0;
+  --success-100: #b7e7d1;
+  --success-200: #94dcba;
+  --success-300: #64cb9b;
+  --success-400: #45c188;
+  --success-500: #17b26a;
+  --success-600: #15a260;
+  --success-700: #107e4b;
+  --success-800: #0d623a;
+  --success-900: #0a4b2d;
+
+  /* Warning — Orange (Figma: "Orange" ramp, verified 2026-05-07) */
+  --warning-50:  #fef4e6;
+  --warning-100: #fdddb3;
+  --warning-200: #fbcc8e;
+  --warning-300: #fab55a;
+  --warning-400: #f9a63a;
+  --warning-500: #f79009;
+  --warning-600: #e18308;
+  --warning-700: #af6606;
+  --warning-800: #884f05;
+  --warning-900: #683c04;
+
+  /* Danger — Red (Figma: "Red" ramp, verified 2026-05-07) */
+  --danger-50:  #feeceb;
+  --danger-100: #fac5c1;
+  --danger-200: #f8a9a3;
+  --danger-300: #f5827a;
+  --danger-400: #f36960;
+  --danger-500: #f04438;
+  --danger-600: #da3e33;
+  --danger-700: #aa3028;
+  --danger-800: #84251f;
+  --danger-900: #651d18;
+
+  /* Neutral (warm gray) */
+  --neutral-0:    #ffffff;
+  --neutral-25:   #fafafc;
+  --neutral-50:   #f6f6f6;
+  --neutral-100:  #f0f1f3;
+  --neutral-200:  #e4e6ea;
+  --neutral-300:  #9ba3ae;   /* Figma Nutral-300 */
+  --neutral-400:  #87919e;   /* Figma Nutral-400 */
+  --neutral-500:  #697586;   /* Figma Nutral-500 */
+  --neutral-600:  #606a7a;   /* Figma Nutral-600 */
+  --neutral-700:  #4b535f;
+  --neutral-800:  #2c3138;   /* primary text */
+  --neutral-900:  #1a1a1a;
+  --neutral-1000: #000000;
+
+  /* Tertiary (Figma: "Tertiary" ramp, verified 2026-05-07) */
+  --tertiary-500: #7a95ac;   /* Figma Tertiary-500 */
+  --tertiary-600: #6f889d;   /* Figma Tertiary-600 */
+  --tertiary-700: #576a7a;   /* Figma Tertiary-700 */
+  --tertiary-900: #333f48;   /* Figma Tertiary-900 */
+
+  /* Neutral-Variant (Figma: "Neutral-Variant" ramp, verified 2026-05-07) */
+  --neutral-variant-500: #b9ccdd;   /* Figma NV-500 */
+  --neutral-variant-700: #83919d;   /* Figma NV-700 */
+  --neutral-variant-900: #4e565d;   /* Figma NV-900 ✓ */
+
+  /* Iconic accents pulled from the file: */
+  --accent-saffron:  #8a6d36;   /* "rgb(138,109,54)" — used in Arabic display */
+  --accent-bronze:   #604c20;
+  --accent-purple:   #7670b3;   /* used in illustrations */
+  --accent-violet:   #5e5196;
+  --accent-magenta:  #b22a65;   /* warning/notification */
+  --accent-rose:     #981a4d;
+  --accent-cyan:     #6bbec8;   /* aqua highlight */
+  --accent-lime:     #76b043;
+  --accent-mustard:  #84ad40;
+
+  /* ===== SEMANTIC TOKENS =============================================== */
+
+  /* Brand */
+  --brand:               var(--nwc-blue-500);
+  --brand-hover:         var(--nwc-blue-600);
+  --brand-pressed:       var(--nwc-blue-700);
+  --brand-subtle:        var(--nwc-blue-50);
+  --brand-on:            #ffffff;
+  --brand-secondary:     var(--nwc-green-500);
+
+  /* Foreground / text */
+  --fg-primary:    var(--neutral-800);     /* #2c3138 — main text */
+  --fg-secondary:  var(--neutral-600);     /* #576a7a — body */
+  --fg-tertiary:   var(--tertiary-500);    /* #6f889d — meta/caption */
+  --fg-muted:      var(--neutral-400);
+  --fg-disabled:   var(--neutral-300);
+  --fg-on-brand:   #ffffff;
+  --fg-link:       var(--nwc-blue-500);
+
+  /* Background / surface */
+  --bg-page:       #fafafc;
+  --bg-surface:    #ffffff;
+  --bg-subtle:     var(--neutral-50);
+  --bg-muted:      var(--neutral-100);
+  --bg-brand:      var(--nwc-blue-500);
+  --bg-brand-soft: #f0f7ff;            /* light blue for cards/panels */
+  --bg-overlay:    rgba(0, 47, 86, 0.6);
+
+  /* Border */
+  --border-subtle:  var(--neutral-200);
+  --border-default: var(--neutral-300);
+  --border-strong:  var(--neutral-500);
+  --border-brand:   var(--nwc-blue-500);
+
+  /* Status */
+  --status-info:    var(--info-500);
+  --status-success: var(--success-500);
+  --status-warning: var(--warning-400);
+  --status-danger:  var(--danger-500);
+
+  /* ===== RADII ========================================================= */
+  --radius-xxs:  2px;
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-2xl:  20px;
+  --radius-3xl:  24px;
+  --radius-4xl:  32px;
+  --radius-full: 9999px;
+
+  /* ===== SPACING ======================================================= */
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* ===== SHADOWS (Figma Effect styles, verified 2026-05-07) ============= */
+  /* Two-layer system: tight base layer + spread ambient layer */
+  --shadow-xsm: 0 1px 3px 1px rgba(16, 24, 40, 0.15),  0 1px 2px 0   rgba(16, 24, 40, 0.04);
+  --shadow-sm:  0 2px 6px 2px rgba(16, 24, 40, 0.15),  0 1px 2px 0   rgba(16, 24, 40, 0.30);
+  --shadow-md:  0 4px 8px 3px rgba(16, 24, 40, 0.15),  0 1px 2px 0   rgba(16, 24, 40, 0.30);
+  --shadow-lg:  0 4px 8px 3px rgba(16, 24, 40, 0.15),  0 1px 3px 0   rgba(16, 24, 40, 0.30);
+  --shadow-xl:  0 6px 10px 4px rgba(16, 24, 40, 0.15), 0 2px 3px 0   rgba(16, 24, 40, 0.30);
+  --shadow-2xl: 0 8px 12px 6px rgba(16, 24, 40, 0.15), 0 4px 4px 0   rgba(16, 24, 40, 0.30);
+
+  /* Blur tokens (Figma Effect styles) */
+  --blur-layer:       60px;   /* Layer blur — heavy background blur */
+  --blur-backdrop-md: 16px;   /* backdrop-blur-md — glass/modal panels */
+
+  /* Focus rings (Figma Effect styles — 3px spread, solid status-50 fills) */
+  --ring-primary: 0 0 0 3px rgba(0, 102, 187, 0.20);   /* blue-600 at 20% */
+  --ring-success: 0 0 0 3px #e8f7f0;                    /* success-50  solid */
+  --ring-warning: 0 0 0 3px #fef4e6;                    /* warning-50  solid */
+  --ring-danger:  0 0 0 3px #feeceb;                    /* danger-50   solid */
+  --ring-gray:    0 0 0 3px #f7f9fc;                    /* neutral surface  */
+
+  /* ===== TYPE FOUNDATION =============================================== */
+  /* Arabic-first font stacks — browser picks first font that covers the codepoint.
+     Arabic glyphs pull from IBM Plex Sans Arabic / Bahij TheSansArabic;
+     Latin glyphs fall through to Cabin / Neo Sans W23.  */
+  --font-display: "Neo Sans W23", system-ui, sans-serif;
+  --font-body:    "Neo Sans W23", system-ui, sans-serif;
+  --font-arabic:  "Neo Sans W23", system-ui, sans-serif;
+  --font-ui:      "Inter", system-ui, sans-serif;
+  --font-mono:    "Roboto Mono", ui-monospace, monospace;
+  --font-latin:   var(--font-ui);   /* V1 slide compat alias */
+
+  /* ===== V2-template compat aliases (slides/templates/*) =============== */
+  --nwc-primary-50:  var(--nwc-blue-50);
+  --nwc-primary-100: var(--nwc-blue-100);
+  --nwc-primary-200: var(--nwc-blue-200);
+  --nwc-primary-300: var(--nwc-blue-300);
+  --nwc-primary-400: var(--nwc-blue-400);
+  --nwc-primary-500: var(--nwc-blue-500);
+  --nwc-primary-600: var(--nwc-blue-600);
+  --nwc-primary-700: var(--nwc-blue-700);
+  --nwc-primary-800: var(--nwc-blue-800);
+  --nwc-primary-900: var(--nwc-blue-900);
+  --nwc-secondary-50:  var(--nwc-green-50);
+  --nwc-secondary-500: var(--nwc-green-500);
+  --nwc-tertiary-500: var(--tertiary-500);
+  --nwc-teal-50:  var(--nwc-green-50);
+  --nwc-teal-500: var(--nwc-green-500);
+  --nwc-sky-500:  var(--info-500);
+  --nwc-gold-500: #c8a35a;
+  --nwc-neutral-100: var(--neutral-100);
+  --fg-1: var(--fg-primary);
+  --fg-2: var(--fg-secondary);
+  --fg-3: var(--fg-tertiary);
+  --fg-4: var(--fg-muted);
+
+  --leading-tight:  1.2;
+  --leading-snug:   1.35;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.7;
+
+  --tracking-tight:  -0.02em;
+  --tracking-snug:   -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide:   0.02em;
+
+  /* ===== GRID (Figma Grids page, verified 2026-05-07) =================== */
+  --grid-cols-mobile:    4;
+  --grid-gutter-mobile:  20px;   /* was 16px */
+  --grid-margin-mobile:  24px;
+  --grid-cols-web:       12;
+  --grid-gutter-web:     32px;   /* was 24px */
+  --grid-margin-web:     80px;
+
+  /* ===== MOTION =========================================================== */
+  --motion-fast: 150ms ease-out;
+  --motion-base: 200ms ease-in-out;
+  --motion-slow: 350ms ease-in-out;
+
+  /* ===== GRADIENT ========================================================= */
+  --bg-brand-gradient: linear-gradient(135deg, #002f56 0%, #0070cd 60%, #549fde 100%);
+
+  /* ===== V1 COMPAT ALIASES (slide migration) ============================== */
+  /* Map V1 foreground token names → V2 semantic names */
+  --fg-1: var(--fg-primary);
+  --fg-2: var(--fg-secondary);
+  --fg-3: var(--fg-tertiary);
+  --fg-4: var(--fg-muted);
+
+  /* ===== TYPE SCALE (Figma /Typography page, verified 2026-05-07) ======= */
+  /* Display: Arabic العرض — hero/marketing headers */
+  --display-2xl-size: 57px;  --display-2xl-lh: 64px;   /* عرض كبير */
+  --display-xl-size:  45px;  --display-xl-lh:  52px;   /* عرض متوسط */
+  --display-lg-size:  36px;  --display-lg-lh:  44px;   /* عرض صغير */
+  /* Heading: Arabic العنوان — section headers */
+  --display-md-size:  32px;  --display-md-lh:  40px;   /* عنوان كبير */
+  --display-sm-size:  28px;  --display-sm-lh:  36px;   /* عنوان متوسط */
+  --display-xs-size:  24px;  --display-xs-lh:  32px;   /* عنوان صغير ✓ */
+
+  /* Text: body and UI */
+  --text-xl-size:  22px;  --text-xl-lh:  28px;   /* Title Large (was 20/30) */
+  --text-lg-size:  18px;  --text-lg-lh:  28px;   /* extended — between Figma steps */
+  --text-md-size:  16px;  --text-md-lh:  24px;   /* base ✓ */
+  --text-sm-size:  14px;  --text-sm-lh:  20px;   /* ✓ */
+  --text-xs-size:  12px;  --text-xs-lh:  16px;   /* Label medium (was lh: 18px) */
+  --text-2xs-size: 11px;  --text-2xs-lh: 16px;   /* Label small ✓ */
+}
