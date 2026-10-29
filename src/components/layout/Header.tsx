@@ -9,7 +9,7 @@ export const NAV = [
   { id: 'matrix', name: 'المصفوفة' },
   { id: 'register', name: 'سجل المهام' },
   { id: 'timeline', name: 'الخط الزمني' },
-  { id: 'activity', name: 'سجل التعديلات' },
+  { id: 'activity', name: 'سجل التعديلات', admin: true },
 ]
 
 function useScrolled(y: number) {
@@ -69,7 +69,7 @@ export function Header({ onSignIn, onSignOut }: { onSignIn: () => void; onSignOu
 
         <nav aria-label="أقسام اللوحة" className="ms-2 hidden lg:block">
           <ul className="flex items-center gap-1">
-            {NAV.map((n) => (
+            {NAV.filter((n) => !n.admin || isAdmin).map((n) => (
               <li key={n.id}>
                 <a
                   href={`#${n.id}`}

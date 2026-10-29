@@ -182,10 +182,12 @@ function Board() {
           <SectionHeading id="timeline-title" title="الخط الزمني" />
           <Timeline />
         </Section>
-        <Section id="activity" tone="soft" spacing="none" className="py-8" labelledBy="activity-title">
-          <SectionHeading id="activity-title" title="سجل التعديلات" note="آخر ٥٠ تعديلًا ومن قام بها" />
-          <Activity />
-        </Section>
+        {isAdmin && (
+          <Section id="activity" tone="soft" spacing="none" className="py-8" labelledBy="activity-title">
+            <SectionHeading id="activity-title" title="سجل التعديلات" note="آخر ٥٠ تعديلًا ومن قام بها · للمشرف فقط" />
+            <Activity />
+          </Section>
+        )}
         {isAdmin && (
           <Section id="admin" spacing="none" className="py-8" labelledBy="admin-title">
             <SectionHeading id="admin-title" title="إعدادات اللوحة" note="للمشرف فقط" />

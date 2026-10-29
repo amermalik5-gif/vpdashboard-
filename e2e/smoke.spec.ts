@@ -24,6 +24,16 @@ test('anyone can add and edit a task; the change log names them', async ({ page 
   await page.locator('table').getByText('مهمة اختبار').click()
   await page.getByLabel('المسؤول', { exact: true }).fill('فريق الاتصال')
   await page.getByRole('button', { name: 'حفظ التعديلات' }).click()
+
+  // the change log is hidden from visitors, on the page and in the API
+  await expect(page.locator('#activity')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'سجل التعديلات' })).toHaveCount(0)
+  expect((await page.request.get('/api/audit')).status()).toBe(401)
+
+  // the admin sees who made the change
+  await page.getByRole('button', { name: 'دخول المشرف' }).click()
+  await page.getByLabel('كلمة المرور').fill('e2e-secret')
+  await page.getByRole('button', { name: 'دخول', exact: true }).click()
   await expect(page.locator('#activity')).toContainText('سارة غيّر المسؤول في المهمة «مهمة اختبار»')
 })
 
