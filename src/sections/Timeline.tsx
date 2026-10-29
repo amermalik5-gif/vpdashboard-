@@ -15,7 +15,7 @@ const RANGES: { id: Range; label: string }[] = [
 ]
 const ROW_H = 34
 /** Room a bar's name needs before the next item on the row, as % of the track (track ≥ 880px). */
-const LABEL_MIN = 17
+const LABEL_MIN = 20
 
 type Item = { s: Date; e: Date; t?: Task; ev?: EventItem }
 
@@ -44,8 +44,9 @@ export function Timeline() {
     })
     const taskItems = (ids: (id: string) => boolean): Item[] =>
       tasks.filter((t) => ids(t.label)).map((t) => {
-        const [s, e] = span(t)
-        return { s, e, t }
+        // one point per task: its launch day (set, or estimated from start + expected time)
+        const [, launch] = span(t)
+        return { s: launch, e: launch, t }
       })
     const known = new Set(labels.map((l) => l.id))
     return [
@@ -63,7 +64,7 @@ export function Timeline() {
   return (
     <Card padding="none" className="overflow-hidden">
       <div className="flex flex-col gap-3 border-b border-line-subtle p-4 md:flex-row md:items-center md:justify-between md:p-5">
-        <p className="text-sm text-fg-tertiary">اضغط على أي مهمة لفتحها. الجزء الداكن من الشريط = نسبة الإنجاز.</p>
+        <p className="text-sm text-fg-tertiary">كل مهمة تظهر في يوم إطلاقها. الدائرة المفرغة = تاريخ تقديري. اضغط على أي مهمة لفتحها.</p>
         <Tabs label="مدى الخط الزمني" items={RANGES} value={range} onChange={setRange} />
       </div>
       <div className="overflow-x-auto">
@@ -123,22 +124,24 @@ export function Timeline() {
                       )
                     const t = o.t!
                     const st = STATUS[statusOf(t)]
-                    const s = pos(o.s)
-                    const w = Math.max(0.8, pos(new Date(o.e.getTime() + 864e5)) - s)
+                    const estimated = !t.end
                     return (
                       <button
                         key={t.id}
                         type="button"
                         onClick={() => openTask(t.id)}
-                        className="group absolute flex h-[26px] items-center overflow-visible rounded-md text-start"
-                        style={{ insetInlineStart: `${s}%`, width: `${w}%`, top }}
-                        title={`${t.title}\n${fmtDate(o.s)} ← ${fmtDate(o.e)}${t.end ? '' : ' (محسوب)'}\nالجهد ${t.effort ?? '–'} · الإنجاز ${t.progress}٪`}
+                        className="absolute flex items-center gap-1.5 whitespace-nowrap rounded-full py-0.5 pe-2 text-xs font-medium text-fg-primary hover:bg-brand-soft"
+                        style={{ insetInlineStart: `calc(${pos(o.s)}% - 7px)`, top: top + 4 }}
+                        title={`${t.title}\nالإطلاق: ${fmtDate(o.s)}${estimated ? ' (تقديري من تاريخ البدء والمدة المتوقعة)' : ''}\nالإنجاز ${t.progress}٪`}
                       >
-                        <span className="absolute inset-0 rounded-md border" style={{ background: `color-mix(in srgb, ${st.color} 16%, white)`, borderColor: st.color, borderStyle: t.draft ? 'dashed' : 'solid' }} />
-                        <span className="absolute inset-y-0 start-0 rounded-md" style={{ width: `${t.progress}%`, background: st.color, opacity: 0.85 }} />
-                        <span className="relative whitespace-nowrap px-2 text-xs font-medium text-fg-primary [text-shadow:0_0_3px_#fff,0_0_3px_#fff]">
-                          {t.title}
-                        </span>
+                        <span
+                          aria-hidden
+                          className="h-3.5 w-3.5 shrink-0 rounded-full border-2"
+                          style={{ borderColor: st.color, background: estimated ? 'var(--surface, #fff)' : st.color, borderStyle: estimated ? 'dashed' : 'solid' }}
+                        />
+                        {t.title}
+                        <span className="font-normal text-fg-tertiary">{fmtDay(o.s)}</span>
+                        {estimated && <span className="rounded-full bg-neutral-100 px-1.5 text-2xs font-normal text-fg-secondary">تقديري</span>}
                       </button>
                     )
                   }),

@@ -178,7 +178,7 @@ export function TaskSheet() {
                 </option>
               ))}
             </select>
-            <p className="field-hint">إذا لم يُحدَّد تاريخ الانتهاء، تنتهي المهمة بعد هذه المدة من تاريخ البدء.</p>
+            <p className="field-hint">إذا لم يُحدَّد تاريخ الإطلاق، يُقدَّر بعد هذه المدة من تاريخ البدء.</p>
           </div>
         </Group>
 
@@ -193,10 +193,10 @@ export function TaskSheet() {
           </div>
           <div>
             <label htmlFor="t-end" className="field-label">
-              تاريخ الانتهاء
+              تاريخ الإطلاق
             </label>
             <input id="t-end" type="date" className="field" value={f.end} min={f.start || undefined} onChange={(e) => set('end', e.target.value)} />
-            {derivedEnd && <p className="field-hint">غير محدد: يُحسب {fmtDay(derivedEnd)}</p>}
+            {derivedEnd && <p className="field-hint">غير محدد: تقديريًا {fmtDay(derivedEnd)}</p>}
           </div>
           <div className="sm:col-span-2">
             <label htmlFor="t-owner" className="field-label">

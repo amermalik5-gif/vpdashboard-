@@ -12,7 +12,7 @@ import { EXPECTATIONS, type Task } from '@/lib/types'
 type Sort = 'rank' | 'end' | 'progress' | 'recent'
 const SORTS: { id: Sort; label: string }[] = [
   { id: 'rank', label: 'الأهم أولًا' },
-  { id: 'end', label: 'الأقرب انتهاءً' },
+  { id: 'end', label: 'الأقرب إطلاقًا' },
   { id: 'progress', label: 'الأقل إنجازًا' },
   { id: 'recent', label: 'آخر تعديل' },
 ]
@@ -80,7 +80,7 @@ export function Register() {
               <th className="bg-blue-50/60 py-3 text-start font-medium text-blue-700">المدة المتوقعة</th>
               <th className="py-3 text-center font-medium">الجهد</th>
               <th className="w-40 py-3 text-start font-medium">الإنجاز</th>
-              <th className="py-3 text-start font-medium">الانتهاء</th>
+              <th className="py-3 text-start font-medium">الإطلاق</th>
               <th className="py-3 pe-5 text-start font-medium">المسؤول</th>
             </tr>
           </thead>
@@ -125,7 +125,7 @@ export function Register() {
                   <td className="py-3 pe-4">
                     <Progress t={t} />
                   </td>
-                  <td className="py-3 text-fg-secondary" title={t.end ? undefined : 'محسوب من تاريخ البدء والمدة المتوقعة'}>
+                  <td className="py-3 text-fg-secondary" title={t.end ? undefined : 'تقديري من تاريخ البدء والمدة المتوقعة'}>
                     {fmtDay(end)}
                     {!t.end && <span className="text-fg-muted"> *</span>}
                   </td>
@@ -183,7 +183,7 @@ export function Register() {
                         </dd>
                       </div>
                       <div>
-                        <dt>الانتهاء</dt>
+                        <dt>الإطلاق</dt>
                         <dd className="text-sm text-fg-primary">{fmtDay(end)}</dd>
                       </div>
                     </dl>
@@ -202,7 +202,7 @@ export function Register() {
         <p className="p-8 text-center text-fg-tertiary">{q ? 'لا توجد مهام تطابق البحث.' : 'لا توجد مهام بعد. اضغط «إضافة مهمة» لإنشاء أول مهمة.'}</p>
       )}
       <p className="border-t border-line-subtle px-5 py-3 text-xs text-fg-tertiary">
-        الأعمدة المظللة يحددها نائب الرئيس، والبقية يحدّثها الفريق. * تاريخ انتهاء محسوب من تاريخ البدء والمدة المتوقعة.
+        الأعمدة المظللة يحددها نائب الرئيس، والبقية يحدّثها الفريق. * تاريخ إطلاق تقديري من تاريخ البدء والمدة المتوقعة.
       </p>
     </Card>
   )

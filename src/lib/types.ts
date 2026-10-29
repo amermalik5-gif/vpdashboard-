@@ -97,7 +97,7 @@ export const FIELD_NAMES: Record<string, string> = {
   effort: 'الجهد',
   progress: 'نسبة الإنجاز',
   start: 'تاريخ البدء',
-  end: 'تاريخ الانتهاء',
+  end: 'تاريخ الإطلاق',
   owner: 'المسؤول',
   notes: 'الملاحظات',
   draft: 'التأكيد',

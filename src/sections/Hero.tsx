@@ -24,7 +24,7 @@ export function Hero() {
         const [, e] = span(t)
         return e >= now && e <= soon
       }).length,
-      name: 'تنتهي خلال ١٤ يومًا',
+      name: 'إطلاق خلال ١٤ يومًا',
     },
   ]
   const drafts = tasks.filter((t) => t.draft).length
