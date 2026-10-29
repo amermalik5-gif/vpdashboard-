@@ -64,7 +64,7 @@ function OptionList({ title, note, items, onChange }: { title: string; note: str
   )
 }
 
-/** Admin-only: the lists everyone picks from. Capacity lives on the meter itself. */
+/** Admin-only: the weekly capacity behind the meter, and the lists everyone picks from. */
 export function AdminPanel() {
   const { state, run } = useBoardCtx()
   const saved = state?.settings
@@ -84,16 +84,35 @@ export function AdminPanel() {
     run(
       () =>
         api.saveSettings({
+          weeklyCapacity: Math.max(1, Math.round(s.weeklyCapacity || 1)),
           labels: s.labels.filter((l) => l.name.trim()),
           eventTypes: s.eventTypes.filter((l) => l.name.trim()),
           categories: cats.split('\n').map((c) => c.trim()).filter(Boolean),
         }),
-      'حُفظت القوائم',
+      'حُفظت الإعدادات',
     )
 
   return (
     <div className="grid gap-6">
       <Card padding="none" className="p-4 md:p-6">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-line-subtle pb-6">
+          <div>
+            <label htmlFor="cap" className="font-medium">
+              الطاقة الأسبوعية (نقاط جهد)
+            </label>
+            <p className="text-xs text-fg-tertiary">مجموع الجهد الذي يستطيع الفريق تحمّله في الأسبوع. مؤشر الطاقة يقارن حِمل الأسبوع الحالي بهذا الرقم.</p>
+          </div>
+          <input
+            id="cap"
+            type="number"
+            min={1}
+            max={1000}
+            inputMode="numeric"
+            className="field w-28 text-center tabular"
+            value={s.weeklyCapacity}
+            onChange={(e) => setS({ ...s, weeklyCapacity: Number(e.target.value) })}
+          />
+        </div>
         <div className="grid gap-8 md:grid-cols-3">
           <OptionList
             title="المستويات"
@@ -113,7 +132,7 @@ export function AdminPanel() {
         </div>
         <div className="mt-6 flex items-center gap-3 border-t border-line-subtle pt-4">
           <Button onClick={save} disabled={!dirty}>
-            حفظ القوائم
+            حفظ الإعدادات
           </Button>
           {dirty && (
             <Button
