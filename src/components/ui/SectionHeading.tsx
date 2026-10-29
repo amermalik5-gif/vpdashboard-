@@ -3,29 +3,25 @@ import { cn } from '@/lib/cn'
 
 interface SectionHeadingProps {
   id?: string
-  eyebrow?: ReactNode
   title: ReactNode
-  intro?: ReactNode
-  tone?: 'light' | 'dark'
+  /** One short line next to the title */
+  note?: ReactNode
   className?: string
-  /** Shown at the end side on wide screens (filters, actions) */
+  /** Shown at the end side (filters, actions) */
   aside?: ReactNode
 }
 
-/** DS section heading, as in the booklet: eyebrow → 64×4 accent bar → Neo Sans title → intro. */
-export function SectionHeading({ id, eyebrow, title, intro, tone = 'light', className, aside }: SectionHeadingProps) {
-  const dark = tone === 'dark'
+/** Compact heading for a working dashboard: one title line and an optional short note. */
+export function SectionHeading({ id, title, note, className, aside }: SectionHeadingProps) {
   return (
-    <div className={cn('mb-8 flex flex-col gap-5 md:mb-10 lg:flex-row lg:items-end lg:justify-between', className)}>
-      <div className="max-w-prose">
-        {eyebrow && <p className={cn('eyebrow mb-3', dark && 'text-blue-200')}>{eyebrow}</p>}
-        <span aria-hidden className={cn('accent-bar mb-5', dark ? 'text-white' : 'text-brand')} />
-        <h2 id={id} className={cn('text-display-xs font-medium tracking-snug md:text-display-sm', dark ? 'text-white' : 'text-fg-primary')}>
+    <div className={cn('mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1', className)}>
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 id={id} className="text-xl font-medium tracking-snug text-fg-primary md:text-display-xs">
           {title}
         </h2>
-        {intro && <p className={cn('mt-3 text-md leading-relaxed', dark ? 'text-white/80' : 'text-fg-secondary')}>{intro}</p>}
+        {note && <p className="text-sm text-fg-tertiary">{note}</p>}
       </div>
-      {aside && <div className="shrink-0">{aside}</div>}
+      {aside}
     </div>
   )
 }
