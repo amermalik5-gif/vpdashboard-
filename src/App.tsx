@@ -11,8 +11,6 @@ import { cn } from '@/lib/cn'
 import { AnimatePresence, motion, EASE } from '@/lib/motion'
 import { Activity } from '@/sections/Activity'
 import { AdminPanel } from '@/sections/AdminPanel'
-import { Capacity } from '@/sections/Capacity'
-import { Events } from '@/sections/Events'
 import { Hero } from '@/sections/Hero'
 import { Matrix } from '@/sections/Matrix'
 import { Register } from '@/sections/Register'
@@ -165,17 +163,11 @@ function Board() {
           </div>
         )}
         <Section id="matrix" spacing="none" className="py-8" labelledBy="matrix-title">
-          <SectionHeading id="matrix-title" title="الأولويات والطاقة والفعاليات" className="sr-only" />
-          <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-            <Matrix />
-            <div className="grid content-start gap-6 md:grid-cols-2 xl:grid-cols-1">
-              <Capacity />
-              <Events />
-            </div>
-          </div>
+          <SectionHeading id="matrix-title" title="الأهمية والاستعجال" className="sr-only" />
+          <Matrix />
         </Section>
         <Section id="register" tone="soft" spacing="none" className="py-8" labelledBy="register-title">
-          <SectionHeading id="register-title" title="سجل المهام" note="اضغط على أي مهمة لتعديلها" />
+          <SectionHeading id="register-title" title="المهام والفعاليات" note="عدّل أي قيمة مباشرة في الجدول" />
           <Register />
         </Section>
         <Section id="timeline" spacing="none" className="py-8" labelledBy="timeline-title">

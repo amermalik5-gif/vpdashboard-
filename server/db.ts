@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3'
 import { mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { AuditEntry, EventItem, Settings, Task } from '../src/lib/types.ts'
-import { seed } from './seed.ts'
+import { realItems, SAMPLE_TITLES, seed } from './seed.ts'
 
 const FILE = process.env.DATABASE_PATH ?? (process.env.NODE_ENV === 'production' ? '/data/vp.db' : './data/vp.db')
 mkdirSync(dirname(FILE), { recursive: true })
@@ -14,7 +14,7 @@ db.pragma('foreign_keys = ON')
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '',
+    id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '',
     priority INTEGER, urgency INTEGER, expectation TEXT NOT NULL DEFAULT '', effort INTEGER, progress INTEGER NOT NULL DEFAULT 0,
     start TEXT NOT NULL DEFAULT '', "end" TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
     draft INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL DEFAULT ''
@@ -31,11 +31,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS audit_at ON audit(at DESC);
 `)
 
+// databases from before items had a type: add the column in place
+if (!(db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).some((c) => c.name === 'kind'))
+  db.exec("ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT ''")
+
 type Row = Record<string, unknown>
 
 const toTask = (r: Row): Task => ({
   id: r.id as string,
   title: r.title as string,
+  kind: (r.kind ?? '') as Task['kind'],
   category: r.category as string,
   label: r.label as string,
   priority: r.priority as number | null,
@@ -90,13 +95,13 @@ export const getTask = (id: string): Task | undefined => {
   return r && toTask(r)
 }
 
-export function insertTask(t: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy'> & { id?: string; createdAt?: number }, by: string): Task {
+export function insertTask(t: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'kind'> & { kind?: Task['kind']; id?: string; createdAt?: number }, by: string): Task {
   const now = Date.now()
   const id = t.id ?? randomUUID()
   db.prepare(
-    `INSERT INTO tasks (id,title,category,label,priority,urgency,expectation,effort,progress,start,"end",owner,notes,draft,created_at,updated_at,updated_by)
-     VALUES (@id,@title,@category,@label,@priority,@urgency,@expectation,@effort,@progress,@start,@end,@owner,@notes,@draft,@created_at,@updated_at,@updated_by)`,
-  ).run({ ...t, id, draft: Number(t.draft), created_at: t.createdAt ?? now, updated_at: now, updated_by: by })
+    `INSERT INTO tasks (id,title,kind,category,label,priority,urgency,expectation,effort,progress,start,"end",owner,notes,draft,created_at,updated_at,updated_by)
+     VALUES (@id,@title,@kind,@category,@label,@priority,@urgency,@expectation,@effort,@progress,@start,@end,@owner,@notes,@draft,@created_at,@updated_at,@updated_by)`,
+  ).run({ ...t, kind: t.kind ?? '', id, draft: Number(t.draft), created_at: t.createdAt ?? now, updated_at: now, updated_by: by })
   return getTask(id)!
 }
 
@@ -187,9 +192,9 @@ export const getAudit = (id: number): AuditEntry | undefined => {
   return r && toAudit(r)
 }
 
-/* first run: the items from the kickoff sketch, waiting for the VP to confirm */
+/* first run: the VP's list of tasks and events */
 const empty = (db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n === 0 && (db.prepare('SELECT COUNT(*) AS n FROM audit').get() as { n: number }).n === 0
-if (empty) db.transaction(() => seed(insertTask, insertEvent))()
+if (empty) db.transaction(() => seed(insertTask))()
 
 /* one-time migrations, recorded in settings.migrations so each runs once */
 const done = new Set<string>(JSON.parse((db.prepare("SELECT value FROM settings WHERE key = 'migrations'").get() as { value: string } | undefined)?.value ?? '[]'))
@@ -214,6 +219,39 @@ migrate('services-categories', () => {
     const next = byTitle[t.title] ?? byCategory[t.category] ?? 'أخرى'
     db.prepare('UPDATE tasks SET category = ? WHERE id = ?').run(next, t.id)
     audit({ entity: 'task', entityId: t.id, entityTitle: t.title, action: 'update', field: 'category', old: t.category, new: next, by: 'النظام' })
+  }
+})
+
+// events and tasks became one list of items with a type (فعالية / إطلاق / أخرى)
+migrate('merge-events-into-items', () => {
+  for (const e of listEvents()) {
+    const t = insertTask(
+      { title: e.name, kind: 'event', category: '', label: '', priority: null, urgency: null, expectation: '', effort: null, progress: 0, start: '', end: e.date, owner: '', notes: e.notes, draft: e.draft, createdAt: e.createdAt },
+      'النظام',
+    )
+    db.prepare('DELETE FROM events WHERE id = ?').run(e.id)
+    audit({ entity: 'task', entityId: t.id, entityTitle: t.title, action: 'create', field: '', old: null, new: t, by: 'النظام' })
+  }
+})
+
+// the VP's real list (30 Oct 2026) replaces the sample rows from the first version
+if (!done.has('real-items-2026-10-30') && !empty) {
+  // a copy of the database before anything is removed (VACUUM cannot run inside a transaction)
+  mkdirSync(join(dirname(FILE), 'backups'), { recursive: true })
+  db.prepare('VACUUM INTO ?').run(join(dirname(FILE), 'backups', `before-real-items-${Date.now()}.db`))
+}
+migrate('real-items-2026-10-30', () => {
+  if (empty) return // a fresh database was seeded with the real list already
+  for (const t of listTasks()) {
+    if (!SAMPLE_TITLES.includes(t.title)) continue
+    db.prepare('DELETE FROM tasks WHERE id = ?').run(t.id)
+    audit({ entity: 'task', entityId: t.id, entityTitle: t.title, action: 'delete', field: '', old: t, new: null, by: 'النظام' })
+  }
+  const have = new Set(listTasks().map((t) => t.title))
+  for (const item of realItems()) {
+    if (have.has(item.title)) continue
+    const t = insertTask(item, 'النظام')
+    audit({ entity: 'task', entityId: t.id, entityTitle: t.title, action: 'create', field: '', old: null, new: t, by: 'النظام' })
   }
 })
 

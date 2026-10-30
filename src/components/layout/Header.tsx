@@ -7,7 +7,7 @@ import { useBoardCtx } from '@/lib/board'
 
 export const NAV = [
   { id: 'matrix', name: 'المصفوفة' },
-  { id: 'register', name: 'سجل المهام' },
+  { id: 'register', name: 'المهام والفعاليات' },
   { id: 'timeline', name: 'الخط الزمني' },
   { id: 'activity', name: 'سجل التعديلات', admin: true },
 ]

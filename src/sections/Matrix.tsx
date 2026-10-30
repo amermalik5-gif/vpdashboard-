@@ -33,7 +33,9 @@ function placeLabels(items: Bubble[], k: number): Placed[] {
   const boxes: { x0: number; x1: number; y0: number; y1: number }[] = items.map((b) => ({ x0: b.x - b.r, x1: b.x + b.r, y0: b.y - b.r, y1: b.y + b.r }))
   const hit = (b: (typeof boxes)[number]) => boxes.some((o) => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0)
   return items.map((p) => {
-    const label = p.t.title.length > 22 ? `${p.t.title.slice(0, 21)}…` : p.t.title
+    // the name plus its progress, so every bubble says how far along it is
+    const name = p.t.title.length > 20 ? `${p.t.title.slice(0, 19)}…` : p.t.title
+    const label = `${name} · ${toArabicDigits(p.t.progress)}٪`
     const w = label.length * 6.4 * k + 8
     const h = 13 * k
     const options = [
@@ -136,7 +138,7 @@ export function Matrix() {
       </div>
 
       <div ref={wrap}>
-        <svg ref={svg} viewBox={`0 0 ${W} ${H}`} className="w-full touch-none select-none"
+        <svg ref={svg} viewBox={`0 0 ${W} ${H}`} className="mx-auto w-full max-w-[920px] touch-none select-none"
           style={{ direction: 'ltr' }} role="group" aria-label="مصفوفة المهام حسب درجة الأهمية ومستوى الاستعجال">
           {/* quadrants */}
           <rect x={BOX.x0} y={BOX.y0} width={sx(5) - BOX.x0} height={sy(5) - BOX.y0} fill="var(--danger-50)" />
@@ -176,21 +178,21 @@ export function Matrix() {
                 opacity={dim ? 0.25 : 1}
                 tabIndex={0}
                 role="button"
-                aria-label={`${p.t.title}: أهمية ${p.t.priority}، استعجال ${p.t.urgency}، جهد ${p.t.effort ?? '–'}، إنجاز ${p.t.progress}٪${isOverdue(p.t) ? '، متأخرة' : ''}`}
+                aria-label={`${p.t.title}: أهمية ${p.t.priority}، استعجال ${p.t.urgency}، جهد ${p.t.effort ?? 'غير محدد'}، إنجاز ${p.t.progress}٪${isOverdue(p.t) ? '، متأخرة' : ''}`}
                 onPointerDown={(e) => onDown(e, p.t.id)}
                 onPointerMove={(e) => onMove(e, p.t.id)}
                 onPointerUp={(e) => onUp(e, p.t.id)}
                 onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(p.t.id))}
               >
                 <title>{`${p.t.title}${isOverdue(p.t) ? ' · متأخرة' : ''}\nالأهمية ${toArabicDigits(p.t.priority ?? 0)} · الاستعجال ${toArabicDigits(p.t.urgency ?? 0)} · الجهد ${toArabicDigits(p.t.effort ?? 0)} · الإنجاز ${toArabicDigits(p.t.progress)}٪`}</title>
-                <circle cx={x} cy={y} r={p.r} fill={st.color} fillOpacity={0.85} stroke="#fff" strokeWidth={2} />
+                {p.t.effort == null ? (
+                  // no effort entered yet: a hollow outline, so it can't pass for effort 1
+                  <circle cx={x} cy={y} r={p.r} fill="var(--surface, #fff)" stroke={st.color} strokeWidth={2.5} />
+                ) : (
+                  <circle cx={x} cy={y} r={p.r} fill={st.color} fillOpacity={0.85} stroke="#fff" strokeWidth={2} />
+                )}
                 {isOverdue(p.t) && <circle cx={x} cy={y} r={p.r + 2} fill="none" stroke="var(--danger-700)" strokeWidth={4} />}
                 {p.t.draft && <circle cx={x} cy={y} r={p.r + 4} fill="none" stroke={st.color} strokeDasharray="3 3" strokeWidth={1.5} />}
-                {p.r >= 22 && (
-                  <text x={x} y={y + 5} textAnchor="middle" fontSize={12 * Math.min(k, 1.3)} fontWeight={500} fill="#fff" pointerEvents="none">
-                    {toArabicDigits(p.t.progress)}٪
-                  </text>
-                )}
                 {!d && (
                   <text x={p.lx} y={p.ly} textAnchor="middle" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)" stroke="#fff" strokeWidth={3} paintOrder="stroke" pointerEvents="none">
                     {p.label}
@@ -230,8 +232,12 @@ export function Matrix() {
           </span>
         ))}
         <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-3 rounded-full border-2 border-fg-tertiary bg-surface" />
+          الجهد غير محدد
+        </span>
+        <span className="inline-flex items-center gap-1.5">
           <span className="h-3 w-3 rounded-full border border-dashed border-fg-tertiary" />
-          بانتظار التأكيد
+          بانتظار الموافقة
         </span>
       </div>
       {unplaced.length > 0 && (

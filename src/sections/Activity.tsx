@@ -17,7 +17,7 @@ function show(field: string, v: unknown, labelName: (id: string) => string): str
   return s.length > 40 ? `${s.slice(0, 39)}…` : s
 }
 
-const KIND = { task: 'المهمة', event: 'الفعالية', settings: '' }
+const KIND = { task: 'البند', event: 'الفعالية', settings: '' }
 
 function sentence(a: AuditEntry, labelName: (id: string) => string) {
   const what = a.entity === 'settings' ? FIELD_NAMES[a.field] ?? a.field : `${KIND[a.entity]} «${a.entityTitle}»`

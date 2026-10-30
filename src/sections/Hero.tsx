@@ -3,7 +3,7 @@ import pattern from '@/assets/brand/bg-pattern.webp'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDate, toArabicDigits } from '@/lib/format'
-import { addDays, isOpen, isOverdue, parseDate, span, today } from '@/lib/schedule'
+import { addDays, hasDate, isOpen, isOverdue, parseDate, span, today } from '@/lib/schedule'
 
 /**
  * Slim summary bar under the header: title, as-of date, the five numbers the VP checks
@@ -23,10 +23,11 @@ export function Hero() {
     { n: open.filter((t) => started(t) && t.progress < 20).length, name: 'بدأت وإنجازها أقل من ٢٠٪', hot: true },
     {
       n: open.filter((t) => {
+        if (!hasDate(t)) return false
         const [, e] = span(t)
         return e >= now && e <= soon
       }).length,
-      name: 'إطلاق خلال ١٤ يومًا',
+      name: 'مواعيد خلال ١٤ يومًا',
     },
   ]
   const drafts = tasks.filter((t) => t.draft).length
@@ -44,7 +45,7 @@ export function Hero() {
             {drafts > 0 && (
               <a href="#register" className="inline-flex items-center gap-1.5 rounded-full border border-gold-500/50 px-2.5 py-0.5 text-xs font-medium text-gold-500 hover:bg-white/5">
                 <span className="h-1.5 w-1.5 rounded-full bg-gold-500" />
-                {toArabicDigits(drafts)} بانتظار تأكيد نائب الرئيس
+                {toArabicDigits(drafts)} بانتظار موافقة نائب الرئيس
               </a>
             )}
           </div>
@@ -64,7 +65,7 @@ export function Hero() {
             className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-md bg-white px-4 text-sm font-medium text-brand transition-colors duration-fast hover:bg-blue-50"
           >
             <Plus size={18} aria-hidden />
-            إضافة مهمة
+            إضافة مهمة أو فعالية
           </button>
         </div>
       </div>

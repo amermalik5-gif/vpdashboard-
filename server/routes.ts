@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express'
-import { EXPECTATIONS, EVENT_FIELDS, TASK_FIELDS, type EventItem, type Option, type Settings, type Task } from '../src/lib/types.ts'
+import { EXPECTATIONS, EVENT_FIELDS, ITEM_KINDS, TASK_FIELDS, type EventItem, type Option, type Settings, type Task } from '../src/lib/types.ts'
 import * as store from './db.ts'
 import { snapshot } from './backup.ts'
 import { checkPassword, clearAdminCookie, isAdmin, rateLimit, requireAdmin, setAdminCookie } from './auth.ts'
@@ -45,6 +45,11 @@ function cleanTaskField(k: (typeof TASK_FIELDS)[number], v: unknown): unknown {
       const s = str(v, 160, 'العنوان')
       if (!s) throw new Invalid('اكتب عنوانًا للمهمة.')
       return s
+    }
+    case 'kind': {
+      const k = str(v, 10, 'النوع')
+      if (k && !(k in ITEM_KINDS)) throw new Invalid('نوع غير معروف.')
+      return k
     }
     case 'category':
     case 'owner':
@@ -124,7 +129,7 @@ const handle = (fn: (req: Request, res: Response) => unknown) => (req: Request, 
 }
 
 /** Fields the VP sets; changing one of them confirms a seeded draft. */
-const VP_FIELDS = ['priority', 'urgency', 'expectation', 'category', 'label']
+const VP_FIELDS = ['priority', 'urgency', 'expectation', 'category', 'label', 'kind', 'end']
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
@@ -173,9 +178,10 @@ const csvCell = (v: unknown) => {
 api.get('/backup/tasks.csv', requireAdmin, (_req, res) => {
   const { labels } = store.getSettings()
   const labelName = (id: string) => labels.find((l) => l.id === id)?.name ?? id
-  const head = ['المهمة', 'الفئة', 'المستوى', 'درجة الأهمية', 'مستوى الاستعجال', 'المدة المتوقعة', 'الجهد', 'نسبة الإنجاز', 'تاريخ البدء', 'تاريخ الإطلاق', 'المسؤول', 'الملاحظات', 'بانتظار التأكيد', 'آخر تعديل بواسطة', 'آخر تعديل']
+  const head = ['المهمة / الفعالية', 'النوع', 'الفئة', 'المستوى', 'درجة الأهمية', 'مستوى الاستعجال', 'المدة المتوقعة', 'الجهد', 'نسبة الإنجاز', 'تاريخ البدء', 'التاريخ', 'المسؤول', 'الملاحظات', 'بانتظار التأكيد', 'آخر تعديل بواسطة', 'آخر تعديل']
   const rows = store.listTasks().map((t) => [
     t.title,
+    t.kind ? ITEM_KINDS[t.kind] : '',
     t.category,
     labelName(t.label),
     t.priority,
@@ -238,10 +244,12 @@ api.post(
       store.db.prepare('DELETE FROM events').run()
       for (const t of tasks)
         store.insertTask(
-          { id: t.id, createdAt: t.createdAt, title: t.title, category: t.category ?? '', label: t.label ?? '', priority: t.priority ?? null, urgency: t.urgency ?? null, expectation: t.expectation ?? '', effort: t.effort ?? null, progress: t.progress, start: t.start ?? '', end: t.end ?? '', owner: t.owner ?? '', notes: t.notes ?? '', draft: t.draft },
+          { id: t.id, createdAt: t.createdAt, title: t.title, kind: t.kind ?? '', category: t.category ?? '', label: t.label ?? '', priority: t.priority ?? null, urgency: t.urgency ?? null, expectation: t.expectation ?? '', effort: t.effort ?? null, progress: t.progress, start: t.start ?? '', end: t.end ?? '', owner: t.owner ?? '', notes: t.notes ?? '', draft: t.draft },
           by,
         )
-      for (const e of events) store.insertEvent({ id: e.id, createdAt: e.createdAt, name: e.name, date: e.date ?? '', type: e.type ?? '', notes: e.notes ?? '', draft: e.draft }, by)
+      // events from backups made before events and tasks were merged become items of type «فعالية»
+      for (const e of events)
+        store.insertTask({ id: e.id, createdAt: e.createdAt, title: e.name, kind: 'event', category: '', label: '', priority: null, urgency: null, expectation: '', effort: null, progress: 0, start: '', end: e.date ?? '', owner: '', notes: e.notes ?? '', draft: e.draft }, by)
       for (const [k, v] of Object.entries(settings)) store.setSetting(k as keyof Settings, v)
       store.audit({ entity: 'settings', entityId: 'backup', entityTitle: 'استرجاع نسخة احتياطية', action: 'restore', field: '', old: null, new: { tasks: tasks.length, events: events.length }, by })
     })()
@@ -262,6 +270,7 @@ api.post(
     const task = store.insertTask(
       {
         title: f.title,
+        kind: f.kind ?? '',
         category: f.category ?? '',
         label: f.label ?? '',
         priority: f.priority ?? null,

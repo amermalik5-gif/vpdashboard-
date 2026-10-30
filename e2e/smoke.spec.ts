@@ -7,20 +7,23 @@ test('renders right-to-left with the seeded board and no errors', async ({ page 
   await page.goto('/')
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
   await expect(page.getByRole('heading', { name: 'لوحة أولويات نائب الرئيس' })).toBeVisible()
-  await expect(page.locator('table').getByText('اليوم الرقمي ١٠')).toBeVisible()
+  await expect(page.locator('table').getByText('اليوم الرقمي', { exact: true })).toBeVisible()
+  // the separate events panel and the capacity meter are gone: one list of items
+  await expect(page.getByText('الطاقة الاستيعابية')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
-test('anyone can add and edit a task; the change log names them', async ({ page }) => {
+test('anyone can add and edit an item; the change log names them', async ({ page }) => {
   await page.goto('/')
   await page.locator('#register').getByRole('button', { name: 'إضافة مهمة' }).click()
-  await page.getByLabel('عنوان المهمة').fill('مهمة اختبار')
+  await page.getByLabel('المهمة / الفعالية', { exact: true }).fill('مهمة اختبار')
+  await page.getByLabel('النوع', { exact: true }).selectOption('event')
   // the category is a drop-down of the team's services
-  const category = page.getByLabel('الفئة')
+  const category = page.getByLabel('الفئة', { exact: true })
   await expect(category).toHaveJSProperty('tagName', 'SELECT')
   await expect(category.locator('option', { hasText: 'تصميم العروض' })).toHaveCount(1)
   await category.selectOption('تصميم العروض')
-  await page.getByRole('button', { name: 'إضافة المهمة' }).click()
+  await page.getByRole('button', { name: 'إضافة', exact: true }).click()
   // first save asks for a name
   await page.getByLabel('الاسم').fill('سارة')
   await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
@@ -39,7 +42,7 @@ test('anyone can add and edit a task; the change log names them', async ({ page 
   await page.getByRole('button', { name: 'دخول المشرف' }).click()
   await page.getByLabel('كلمة المرور').fill('e2e-secret')
   await page.getByRole('button', { name: 'دخول', exact: true }).click()
-  await expect(page.locator('#activity')).toContainText('سارة غيّر المسؤول في المهمة «مهمة اختبار»')
+  await expect(page.locator('#activity')).toContainText('سارة غيّر المسؤول في البند «مهمة اختبار»')
 })
 
 test('delete and settings need the admin', async ({ page, request }) => {
@@ -64,11 +67,11 @@ test('a save in one tab shows up live in another', async ({ browser }) => {
   const b = await browser.newPage()
   await a.goto('/')
   await b.goto('/')
-  await expect(b.getByText('مباشر')).toBeVisible()
+  await expect(b.getByText('مباشر', { exact: true })).toBeVisible()
   const state = await (await a.request.get('/api/state')).json()
-  const t = state.tasks.find((x: { title: string }) => x.title === 'فيلم توعوي')
-  await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'live' }, data: { title: 'فيلم توعوي محدّث' } })
-  await expect(b.locator('table').getByText('فيلم توعوي محدّث')).toBeVisible({ timeout: 10_000 })
+  const t = state.tasks.find((x: { title: string }) => x.title === 'فيديو جيرا')
+  await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'live' }, data: { title: 'فيديو جيرا محدّث' } })
+  await expect(b.locator('table').getByText('فيديو جيرا محدّث')).toBeVisible({ timeout: 10_000 })
 })
 
 test('admin can download a full backup and a tasks spreadsheet', async ({ page, request }) => {
@@ -90,8 +93,8 @@ test('admin can download a full backup and a tasks spreadsheet', async ({ page, 
   const [csv] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: /Excel/ }).click()])
   const text = readFileSync(await csv.path(), 'utf8')
   expect(text.charCodeAt(0)).toBe(0xfeff)
-  expect(text).toContain('تاريخ الإطلاق')
-  expect(text).toContain('اليوم الرقمي ١٠')
+  expect(text).toContain('النوع')
+  expect(text).toContain('اليوم الرقمي')
 })
 
 const admin = async (page: import('@playwright/test').Page) => {
@@ -129,11 +132,11 @@ test('a typed «(مشرف)» is not trusted, and team saves keep the VP draft fl
 test('admin settings being typed survive someone else saving a task', async ({ page, request }) => {
   await page.goto('/')
   await admin(page)
-  await page.getByLabel('الطاقة الأسبوعية (نقاط جهد)').fill('35')
+  await page.getByLabel('الفئات', { exact: true }).fill('فئة قيد الكتابة')
   const state = await (await request.get('/api/state')).json()
   await request.patch(`/api/tasks/${state.tasks[0].id}`, { headers: { 'x-editor': 'other' }, data: { owner: `x-${Date.now()}` } })
   await page.waitForTimeout(1500)
-  await expect(page.getByLabel('الطاقة الأسبوعية (نقاط جهد)')).toHaveValue('35')
+  await expect(page.getByLabel('الفئات', { exact: true })).toHaveValue('فئة قيد الكتابة')
 })
 
 test('a downloaded backup can be restored', async ({ page }) => {
@@ -159,10 +162,31 @@ test('two quick saves in a row both reach another open screen', async ({ browser
   const a = await browser.newPage()
   const b = await browser.newPage()
   await b.goto('/')
-  await expect(b.getByText('مباشر')).toBeVisible()
+  await expect(b.getByText('مباشر', { exact: true })).toBeVisible()
   const state = await (await a.request.get('/api/state')).json()
   const t = state.tasks[0]
-  await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'q' }, data: { owner: 'أولى' } })
-  await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'q' }, data: { owner: 'الثانية' } })
-  await expect(b.locator('table tr', { hasText: t.title }).getByText('الثانية')).toBeVisible({ timeout: 10_000 })
+  await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'q' }, data: { notes: 'أولى' } })
+  await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'q' }, data: { notes: 'الثانية' } })
+  await expect(b.getByLabel(`ملاحظات — ${t.title}`)).toHaveValue('الثانية', { timeout: 10_000 })
+})
+
+test('the VP edits importance, urgency, date and notes straight from the table', async ({ page, request }) => {
+  await page.goto('/')
+  const name = 'فيديو الدرونز'
+  await page.getByLabel(`درجة الأهمية — ${name}`).selectOption('3')
+  await page.getByLabel('الاسم').fill('نائب الرئيس')
+  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
+  await page.getByLabel(`مستوى الاستعجال — ${name}`).selectOption('9')
+  await page.getByLabel(`النوع — ${name}`).selectOption('launch')
+  await page.getByLabel(`التاريخ — ${name}`).fill('2026-12-01')
+  await page.getByLabel(`ملاحظات — ${name}`).fill('بعد اعتماد السيناريو')
+  await page.getByLabel(`ملاحظات — ${name}`).press('Enter')
+  await expect
+    .poll(async () => {
+      const t = (await (await request.get('/api/state')).json()).tasks.find((x: { title: string }) => x.title === name)
+      return [t.priority, t.urgency, t.kind, t.end, t.notes].join('|')
+    })
+    .toBe('3|9|launch|2026-12-01|بعد اعتماد السيناريو')
+  // undated items are listed under the timeline instead of being guessed
+  await expect(page.locator('#timeline')).toContainText('بلا تاريخ')
 })
