@@ -178,14 +178,19 @@ export function Matrix() {
                 opacity={dim ? 0.25 : 1}
                 tabIndex={0}
                 role="button"
-                aria-label={`${p.t.title}: أهمية ${p.t.priority}، استعجال ${p.t.urgency}، جهد ${p.t.effort ?? '–'}، إنجاز ${p.t.progress}٪${isOverdue(p.t) ? '، متأخرة' : ''}`}
+                aria-label={`${p.t.title}: أهمية ${p.t.priority}، استعجال ${p.t.urgency}، جهد ${p.t.effort ?? 'غير محدد'}، إنجاز ${p.t.progress}٪${isOverdue(p.t) ? '، متأخرة' : ''}`}
                 onPointerDown={(e) => onDown(e, p.t.id)}
                 onPointerMove={(e) => onMove(e, p.t.id)}
                 onPointerUp={(e) => onUp(e, p.t.id)}
                 onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(p.t.id))}
               >
                 <title>{`${p.t.title}${isOverdue(p.t) ? ' · متأخرة' : ''}\nالأهمية ${toArabicDigits(p.t.priority ?? 0)} · الاستعجال ${toArabicDigits(p.t.urgency ?? 0)} · الجهد ${toArabicDigits(p.t.effort ?? 0)} · الإنجاز ${toArabicDigits(p.t.progress)}٪`}</title>
-                <circle cx={x} cy={y} r={p.r} fill={st.color} fillOpacity={0.85} stroke="#fff" strokeWidth={2} />
+                {p.t.effort == null ? (
+                  // no effort entered yet: a hollow outline, so it can't pass for effort 1
+                  <circle cx={x} cy={y} r={p.r} fill="var(--surface, #fff)" stroke={st.color} strokeWidth={2.5} />
+                ) : (
+                  <circle cx={x} cy={y} r={p.r} fill={st.color} fillOpacity={0.85} stroke="#fff" strokeWidth={2} />
+                )}
                 {isOverdue(p.t) && <circle cx={x} cy={y} r={p.r + 2} fill="none" stroke="var(--danger-700)" strokeWidth={4} />}
                 {p.t.draft && <circle cx={x} cy={y} r={p.r + 4} fill="none" stroke={st.color} strokeDasharray="3 3" strokeWidth={1.5} />}
                 {!d && (
@@ -227,8 +232,12 @@ export function Matrix() {
           </span>
         ))}
         <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-3 rounded-full border-2 border-fg-tertiary bg-surface" />
+          الجهد غير محدد
+        </span>
+        <span className="inline-flex items-center gap-1.5">
           <span className="h-3 w-3 rounded-full border border-dashed border-fg-tertiary" />
-          بانتظار التأكيد
+          بانتظار الموافقة
         </span>
       </div>
       {unplaced.length > 0 && (
