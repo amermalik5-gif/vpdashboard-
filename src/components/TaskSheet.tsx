@@ -7,21 +7,22 @@ import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { fmtDay, fmtTime, toArabicDigits } from '@/lib/format'
 import { addDays, isoDate, parseDate, STATUS, statusOf, today } from '@/lib/schedule'
-import { EXPECTATIONS, type Expectation, type Task } from '@/lib/types'
+import { EXPECTATIONS, ITEM_KINDS, type Expectation, type ItemKind, type Task } from '@/lib/types'
 
 /** Fields the VP sets (the shaded group); changing one confirms a seeded draft. */
-const VP_FIELDS = ['priority', 'urgency', 'expectation', 'category', 'label'] as const
+const VP_FIELDS = ['priority', 'urgency', 'expectation', 'category', 'label', 'kind', 'end'] as const
 
-type Form = Pick<Task, 'title' | 'category' | 'label' | 'priority' | 'urgency' | 'expectation' | 'effort' | 'progress' | 'start' | 'end' | 'owner' | 'notes'>
+type Form = Pick<Task, 'title' | 'kind' | 'category' | 'label' | 'priority' | 'urgency' | 'expectation' | 'effort' | 'progress' | 'start' | 'end' | 'owner' | 'notes'>
 
 const blank = (): Form => ({
   title: '',
+  kind: '',
   category: '',
   label: '',
-  priority: 5,
-  urgency: 5,
-  expectation: '2w',
-  effort: 3,
+  priority: null,
+  urgency: null,
+  expectation: '',
+  effort: null,
   progress: 0,
   start: isoDate(today()),
   end: '',
@@ -86,9 +87,9 @@ export function TaskSheet() {
       for (const k of Object.keys(f) as (keyof Form)[]) if (f[k] !== task[k]) (patch as Record<string, unknown>)[k] = f[k]
       const vpChanged = VP_FIELDS.some((k) => k in patch)
       if (task.draft && (confirm || vpChanged)) patch.draft = false
-      const done = patch.draft === false ? 'حُفظت المهمة وأُكّدت' : 'حُفظت التعديلات'
+      const done = patch.draft === false ? 'حُفظ واعتُمد' : 'حُفظت التعديلات'
       ok = Object.keys(patch).length ? await run(() => api.updateTask(task.id, patch), done) : true
-    } else ok = await run(() => api.addTask(f), 'أُضيفت المهمة')
+    } else ok = await run(() => api.addTask(f), 'أُضيف إلى القائمة')
     setSaving(false)
     if (ok) closeTask()
   }
@@ -99,12 +100,12 @@ export function TaskSheet() {
 
   const remove = async () => {
     if (!task) return
-    if (await run(() => api.deleteTask(task.id), 'حُذفت المهمة')) closeTask()
+    if (await run(() => api.deleteTask(task.id), 'حُذف البند')) closeTask()
   }
 
   // end date preview when only the expected time is set
   const startD = parseDate(f.start) ?? today()
-  const derivedEnd = f.end ? null : addDays(startD, f.expectation ? EXPECTATIONS[f.expectation].days : 14)
+  const derivedEnd = f.end || !f.expectation ? null : addDays(startD, EXPECTATIONS[f.expectation].days)
   const st = STATUS[statusOf({ ...(task ?? ({} as Task)), progress: f.progress })]
 
   return (
@@ -116,11 +117,11 @@ export function TaskSheet() {
         <div className="flex items-center gap-2">
           <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: st.color }} />
           <h2 id="task-sheet-title" className="truncate text-lg font-medium">
-            {task ? 'تعديل المهمة' : 'مهمة جديدة'}
+            {task ? 'تعديل' : 'مهمة أو فعالية جديدة'}
           </h2>
           {task?.draft && (
             <Badge tone="warning" size="xs">
-              بانتظار التأكيد
+              بانتظار الموافقة
             </Badge>
           )}
         </div>
@@ -129,17 +130,30 @@ export function TaskSheet() {
       <form onSubmit={submit} className="mx-auto flex max-w-3xl flex-col gap-5 p-5 md:p-8">
         {task?.draft && (
           <p className="rounded-lg border border-warning-100 bg-warning-50 px-4 py-3 text-sm text-warning-700">
-            هذه القيم مقترحة من اجتماع الانطلاق. تُعتمد عند تغيير أيٍّ من قيم نائب الرئيس، ويستطيع المشرف اعتمادها كما هي بزر «تأكيد القيم».
+            هذا البند بانتظار موافقة نائب الرئيس. يُعتمد عند تغيير أيٍّ من قيم نائب الرئيس، ويستطيع المشرف اعتماده كما هو بزر «تأكيد القيم».
           </p>
         )}
         <div>
           <label htmlFor="t-title" className="field-label">
-            عنوان المهمة
+            المهمة / الفعالية
           </label>
-          <input id="t-title" className="field h-12 text-md" required maxLength={160} value={f.title} onChange={(e) => set('title', e.target.value)} placeholder="مثال: اليوم الرقمي ١٠" />
+          <input id="t-title" className="field h-12 text-md" required maxLength={160} value={f.title} onChange={(e) => set('title', e.target.value)} placeholder="مثال: حفل تدشين الاستراتيجية" />
         </div>
 
-        <Group tone="vp" title="يحددها نائب الرئيس" note="الفئة والمستوى ودرجة الأهمية ومستوى الاستعجال والمدة المتوقعة تحدد موقع المهمة في المصفوفة.">
+        <Group tone="vp" title="يحددها نائب الرئيس" note="درجة الأهمية ومستوى الاستعجال تحددان الموقع في المصفوفة، والتاريخ يحدد الموقع في الخط الزمني.">
+          <div>
+            <label htmlFor="t-kind" className="field-label">
+              النوع
+            </label>
+            <select id="t-kind" className="field" value={f.kind} onChange={(e) => set('kind', e.target.value as ItemKind)}>
+              <option value="">اختر النوع</option>
+              {(Object.entries(ITEM_KINDS) as [ItemKind, string][]).map(([k, name]) => (
+                <option key={k} value={k}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label htmlFor="t-cat" className="field-label">
               الفئة
@@ -170,9 +184,16 @@ export function TaskSheet() {
           </div>
           <Scale id="t-p" label="درجة الأهمية (مهمة)" hint="١٠ = مهمة جدًا" value={f.priority} min={0} max={10} onChange={(v) => set('priority', v)} />
           <Scale id="t-u" label="مستوى الاستعجال (طارئة)" hint="١٠ = طارئة جدًا" value={f.urgency} min={0} max={10} onChange={(v) => set('urgency', v)} />
-          <div className="sm:col-span-2">
+          <div>
+            <label htmlFor="t-end" className="field-label">
+              التاريخ المحدد
+            </label>
+            <input id="t-end" type="date" className="field" value={f.end} onChange={(e) => set('end', e.target.value)} />
+            {derivedEnd ? <p className="field-hint">غير محدد: تقديريًا {fmtDay(derivedEnd)}</p> : <p className="field-hint">يوم الفعالية أو الإطلاق.</p>}
+          </div>
+          <div>
             <label htmlFor="t-exp" className="field-label">
-              المدة المتوقعة
+              أو المدة المتوقعة
             </label>
             <select
               id="t-exp"
@@ -191,11 +212,17 @@ export function TaskSheet() {
                 </option>
               ))}
             </select>
-            <p className="field-hint">إذا لم يُحدَّد تاريخ الإطلاق، يُقدَّر بعد هذه المدة من تاريخ البدء.</p>
+            <p className="field-hint">إن لم يُحدَّد تاريخ، يُقدَّر بعد هذه المدة من تاريخ البدء.</p>
+          </div>
+          <div className="sm:col-span-2">
+            <label htmlFor="t-notes" className="field-label">
+              ملاحظات
+            </label>
+            <textarea id="t-notes" rows={3} className="field" maxLength={2000} value={f.notes} onChange={(e) => set('notes', e.target.value)} />
           </div>
         </Group>
 
-        <Group tone="team" title="يحدّثها الفريق" note="الجهد يحدد حجم الفقاعة ويُحسب في مؤشر الطاقة. نسبة الإنجاز تحدد اللون.">
+        <Group tone="team" title="يحدّثها الفريق" note="الجهد يحدد حجم الفقاعة، ونسبة الإنجاز تحدد اللون.">
           <Scale id="t-e" label="الجهد" hint="١٠ = مثل اليوم الرقمي" value={f.effort} min={1} max={10} onChange={(v) => set('effort', v)} />
           <Scale id="t-pr" label="نسبة الإنجاز" value={f.progress} min={0} max={100} step={5} suffix="٪" onChange={(v) => set('progress', v ?? 0)} />
           <div>
@@ -205,26 +232,12 @@ export function TaskSheet() {
             <input id="t-start" type="date" className="field" value={f.start} onChange={(e) => set('start', e.target.value)} />
           </div>
           <div>
-            <label htmlFor="t-end" className="field-label">
-              تاريخ الإطلاق
-            </label>
-            <input id="t-end" type="date" className="field" value={f.end} min={f.start || undefined} onChange={(e) => set('end', e.target.value)} />
-            {derivedEnd && <p className="field-hint">غير محدد: تقديريًا {fmtDay(derivedEnd)}</p>}
-          </div>
-          <div className="sm:col-span-2">
             <label htmlFor="t-owner" className="field-label">
               المسؤول
             </label>
             <input id="t-owner" className="field" maxLength={80} value={f.owner} onChange={(e) => set('owner', e.target.value)} />
           </div>
         </Group>
-
-        <div>
-          <label htmlFor="t-notes" className="field-label">
-            ملاحظات
-          </label>
-          <textarea id="t-notes" rows={3} className="field" maxLength={2000} value={f.notes} onChange={(e) => set('notes', e.target.value)} />
-        </div>
 
         {task && (
           <p className="text-xs text-fg-tertiary">
@@ -234,7 +247,7 @@ export function TaskSheet() {
 
         <div className="sticky bottom-0 -mx-5 flex flex-wrap items-center gap-3 border-t border-line-subtle bg-page px-5 py-4 md:-mx-8 md:px-8">
           <Button type="submit" size="lg" disabled={saving}>
-            {task ? 'حفظ' : 'إضافة المهمة'}
+            {task ? 'حفظ' : 'إضافة'}
           </Button>
           {task?.draft && isAdmin && (
             <Button variant="outline" size="lg" disabled={saving} onClick={() => void save(true)}>
@@ -258,7 +271,7 @@ export function TaskSheet() {
                 </>
               ) : (
                 <Button variant="ghost" className="text-danger-700 hover:bg-danger-50" icon={<Trash2 size={16} aria-hidden />} onClick={() => setConfirmDelete(true)}>
-                  حذف المهمة
+                  حذف
                 </Button>
               )}
             </div>

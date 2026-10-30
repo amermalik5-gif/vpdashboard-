@@ -40,8 +40,10 @@ export const STATUS: Record<Status, { name: string; color: string; badge: 'dange
 }
 export const isOpen = (t: Task) => t.progress < 100
 
-/** Open, and its launch day has passed. */
-export const isOverdue = (t: Task, now = today()) => isOpen(t) && span(t)[1] < now
+/** The item has a date: one set by the VP, or one estimated from an expected duration. */
+export const hasDate = (t: Task) => !!t.end || !!t.expectation
+/** Open, dated, and its day has passed. */
+export const isOverdue = (t: Task, now = today()) => isOpen(t) && hasDate(t) && span(t)[1] < now
 export const daysOverdue = (t: Task, now = today()) => Math.max(0, daysBetween(span(t)[1], now))
 
 /* ---------- capacity ---------- */

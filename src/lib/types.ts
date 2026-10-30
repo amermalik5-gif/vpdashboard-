@@ -2,9 +2,15 @@
 
 export type Expectation = '1w' | '2w' | '1m' | '2m' | 'q' | '6m'
 
+export type ItemKind = '' | 'event' | 'launch' | 'other'
+
+/** The item's type: an event, a launch, or something else (videos, designs…). */
+export const ITEM_KINDS: Record<Exclude<ItemKind, ''>, string> = { event: 'فعالية', launch: 'إطلاق', other: 'أخرى' }
+
 export interface Task {
   id: string
   title: string
+  kind: ItemKind
   category: string
   /** id of an entry in Settings.labels (ceo, evp, vp, internal, other…) */
   label: string
@@ -79,16 +85,17 @@ export const EXPECTATIONS: Record<Expectation, { name: string; days: number; urg
   '2w': { name: 'أسبوعان', days: 14, urgency: 8 },
   '1m': { name: 'شهر', days: 30, urgency: 6 },
   '2m': { name: 'شهران', days: 61, urgency: 4 },
-  q: { name: 'ربع سنة', days: 91, urgency: 3 },
+  q: { name: 'ربع سنة', days: 89, urgency: 3 }, // a quarter starting on the 1st ends on its last day (1 Jan → 31 Mar)
   '6m': { name: 'ستة أشهر', days: 182, urgency: 1 },
 }
 
 /** Editable task fields and how the server validates them. */
-export const TASK_FIELDS = ['title', 'category', 'label', 'priority', 'urgency', 'expectation', 'effort', 'progress', 'start', 'end', 'owner', 'notes', 'draft'] as const
+export const TASK_FIELDS = ['title', 'kind', 'category', 'label', 'priority', 'urgency', 'expectation', 'effort', 'progress', 'start', 'end', 'owner', 'notes', 'draft'] as const
 export const EVENT_FIELDS = ['name', 'date', 'type', 'notes', 'draft'] as const
 
 export const FIELD_NAMES: Record<string, string> = {
   title: 'العنوان',
+  kind: 'النوع',
   category: 'الفئة',
   label: 'المستوى',
   priority: 'درجة الأهمية',
@@ -97,7 +104,7 @@ export const FIELD_NAMES: Record<string, string> = {
   effort: 'الجهد',
   progress: 'نسبة الإنجاز',
   start: 'تاريخ البدء',
-  end: 'تاريخ الإطلاق',
+  end: 'التاريخ',
   owner: 'المسؤول',
   notes: 'الملاحظات',
   draft: 'التأكيد',

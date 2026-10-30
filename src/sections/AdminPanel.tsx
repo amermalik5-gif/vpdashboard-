@@ -64,7 +64,7 @@ function OptionList({ title, note, items, onChange }: { title: string; note: str
   )
 }
 
-/** Admin-only: the weekly capacity behind the meter, and the lists everyone picks from. */
+/** Admin-only: the lists everyone picks from (levels and categories), plus backups. */
 export function AdminPanel() {
   const { state, run } = useBoardCtx()
   const saved = state?.settings
@@ -93,9 +93,7 @@ export function AdminPanel() {
     run(
       () =>
         api.saveSettings({
-          weeklyCapacity: Math.max(1, Math.round(s.weeklyCapacity || 1)),
           labels: s.labels.filter((l) => l.name.trim()),
-          eventTypes: s.eventTypes.filter((l) => l.name.trim()),
           categories: cats.split('\n').map((c) => c.trim()).filter(Boolean),
         }),
       'حُفظت الإعدادات',
@@ -106,34 +104,15 @@ export function AdminPanel() {
   return (
     <div className="grid gap-6">
       <Card padding="none" className="p-4 md:p-6">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-line-subtle pb-6">
-          <div>
-            <label htmlFor="cap" className="font-medium">
-              الطاقة الأسبوعية (نقاط جهد)
-            </label>
-            <p className="text-xs text-fg-tertiary">كم نقطة جهد يُنجز الفريق في أسبوع عادي. جهد كل مهمة (١–١٠) هو حجمها الكلي، ويُوزَّع ما تبقّى منه على الأسابيع حتى الإطلاق، والمتأخر يُحسب كاملًا في هذا الأسبوع. ابدأ بـ ٨ وعدّل حسب الواقع.</p>
-          </div>
-          <input
-            id="cap"
-            type="number"
-            min={1}
-            max={1000}
-            inputMode="numeric"
-            className="field w-28 text-center tabular"
-            value={s.weeklyCapacity}
-            onChange={(e) => setS({ ...s, weeklyCapacity: Number(e.target.value) })}
-          />
-        </div>
-        <div className="grid gap-8 md:grid-cols-3">
+        <div className="grid gap-8 md:grid-cols-2">
           <OptionList
             title="المستويات"
-            note="تظهر في عمود المستوى ومسارات الخط الزمني. إزالة مستوى تنقل مهامه إلى «بدون مستوى»."
+            note="تظهر في عمود المستوى ومسارات الخط الزمني. إزالة مستوى تنقل بنوده إلى «بدون مستوى»."
             items={s.labels}
             onChange={(labels) => setS({ ...s, labels })}
           />
-          <OptionList title="أنواع الفعاليات" note="تظهر عند إضافة فعالية." items={s.eventTypes} onChange={(eventTypes) => setS({ ...s, eventTypes })} />
           <div>
-            <h4 className="font-medium">الفئات المقترحة</h4>
+            <h4 className="font-medium">الفئات</h4>
             <p className="mb-3 text-xs text-fg-tertiary">فئة في كل سطر. تظهر في القائمة المنسدلة عند إضافة مهمة.</p>
             <label htmlFor="cats" className="sr-only">
               الفئات
@@ -212,7 +191,7 @@ function Backup() {
             النسخ الاحتياطي
           </h4>
           <p className="mt-1 text-sm text-fg-secondary">
-            نزّل نسخة من كل ما في اللوحة: {toArabicDigits(state?.tasks.length ?? 0)} مهام، و{toArabicDigits(state?.events.length ?? 0)} فعاليات، والإعدادات، وسجل التعديلات كاملًا. يُنصح بتنزيلها قبل أي تعديل كبير وفي نهاية كل شهر.
+            نزّل نسخة من كل ما في اللوحة: {toArabicDigits(state?.tasks.length ?? 0)} بندًا (مهام وفعاليات)، والإعدادات، وسجل التعديلات كاملًا. يُنصح بتنزيلها قبل أي تعديل كبير وفي نهاية كل شهر.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -234,7 +213,7 @@ function Backup() {
       {pending && (
         <div className="mt-4 flex flex-col gap-3 rounded-lg border border-warning-100 bg-warning-50 p-4 md:flex-row md:items-center md:justify-between">
           <p className="text-sm text-warning-700">
-            سيستبدل هذا كل المهام والفعاليات والإعدادات الحالية بما في الملف: {toArabicDigits(pending.tasks.length)} مهام و{toArabicDigits(pending.events.length)} فعاليات
+            سيستبدل هذا كل المهام والفعاليات والإعدادات الحالية بما في الملف: {toArabicDigits(pending.tasks.length + pending.events.length)} بندًا
             {pending.exportedAt ? ` (نسخة ${new Date(pending.exportedAt).toLocaleDateString('ar-SA-u-ca-gregory')})` : ''}. يحتفظ الخادم بنسخة من الوضع الحالي قبل الاسترجاع.
           </p>
           <div className="flex shrink-0 gap-2">
