@@ -40,15 +40,29 @@ export const STATUS: Record<Status, { name: string; color: string; badge: 'dange
 }
 export const isOpen = (t: Task) => t.progress < 100
 
+/** Open, and its launch day has passed. */
+export const isOverdue = (t: Task, now = today()) => isOpen(t) && span(t)[1] < now
+export const daysOverdue = (t: Task, now = today()) => Math.max(0, daysBetween(span(t)[1], now))
+
 /* ---------- capacity ---------- */
-/** Sum of effort of every unfinished task active during the week starting `ws`. */
-export function weekLoad(tasks: Task[], ws: Date): number {
+/**
+ * This week's share of the team's effort. Effort is a task's total size (1–10, entered by hand),
+ * so what is still left of it (effort × remaining progress) is spread evenly over the weeks left
+ * until launch. Overdue work lands entirely in the current week; a task counts nothing before
+ * the week it starts.
+ */
+export function weekShare(t: Task, ws: Date): number {
+  if (!isOpen(t) || !t.effort) return 0
+  const remaining = (t.effort * (100 - t.progress)) / 100
+  const [a, b] = span(t)
   const we = addDays(ws, 6)
-  return tasks.filter(isOpen).reduce((sum, t) => {
-    const [a, b] = span(t)
-    return a <= we && b >= ws ? sum + (t.effort ?? 0) : sum
-  }, 0)
+  if (b < ws) return remaining
+  if (a > we) return 0
+  const from = weekStart(a > ws ? a : ws)
+  const weeks = Math.floor(daysBetween(from, weekStart(b)) / 7) + 1
+  return remaining / Math.max(1, weeks)
 }
+export const weekLoad = (tasks: Task[], ws: Date): number => tasks.reduce((sum, t) => sum + weekShare(t, ws), 0)
 export const loadTone = (pct: number) => (pct > 100 ? 'red' : pct >= 80 ? 'amber' : 'green')
 
 /* ---------- bubble layout ---------- */
@@ -99,18 +113,24 @@ export function spreadBubbles(items: Bubble[], box: { x0: number; x1: number; y0
 }
 
 /* ---------- timeline rows ---------- */
-/** Greedy packing: an item goes on the first row whose last item (bar or label) ends before it starts. */
-export function packRows<T extends { s: Date; e: Date }>(items: T[], pos: (d: Date) => number, labelMin: number): T[][] {
-  const rows: T[][] = []
-  const sorted = [...items].sort((a, b) => a.s.getTime() - b.s.getTime())
+/**
+ * Greedy packing: each item occupies a span of the track (its marker plus its label, as % of the
+ * track) and goes on the first row where it overlaps nothing already placed.
+ */
+export function packRows<T>(items: T[], extent: (o: T) => [number, number]): T[][] {
+  const rows: [number, number][][] = []
+  const out: T[][] = []
+  const sorted = [...items].sort((a, b) => extent(a)[0] - extent(b)[0])
   for (const o of sorted) {
-    const end = (r: T[]) => {
-      const last = r[r.length - 1]
-      return Math.max(pos(last.e), pos(last.s) + labelMin)
+    const [lo, hi] = extent(o)
+    let i = rows.findIndex((r) => r.every(([a, b]) => hi + 0.5 < a || lo > b + 0.5))
+    if (i < 0) {
+      i = rows.length
+      rows.push([])
+      out.push([])
     }
-    let row = rows.find((r) => end(r) + 0.5 < pos(o.s))
-    if (!row) rows.push((row = []))
-    row.push(o)
+    rows[i].push([lo, hi])
+    out[i].push(o)
   }
-  return rows
+  return out
 }

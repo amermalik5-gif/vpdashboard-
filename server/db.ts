@@ -128,7 +128,7 @@ export function insertEvent(e: Omit<EventItem, 'id' | 'createdAt' | 'updatedAt' 
 
 /* ---------- settings ---------- */
 export const DEFAULT_SETTINGS: Settings = {
-  weeklyCapacity: 20,
+  weeklyCapacity: 8,
   labels: [
     { id: 'ceo', name: 'الرئيس التنفيذي' },
     { id: 'evp', name: 'نائب الرئيس التنفيذي' },

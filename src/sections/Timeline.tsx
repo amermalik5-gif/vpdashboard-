@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/Card'
 import { Tabs } from '@/components/ui/Tabs'
 import { useBoardCtx } from '@/lib/board'
 import { fmtDate, fmtDay, fmtMonth, toArabicDigits } from '@/lib/format'
-import { packRows, parseDate, span, STATUS, statusOf, today } from '@/lib/schedule'
+import { isOverdue, packRows, parseDate, span, STATUS, statusOf, today } from '@/lib/schedule'
 import type { EventItem, Task } from '@/lib/types'
 
 type Range = '3' | '6' | '12'
@@ -35,6 +35,10 @@ export function Timeline() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range])
 
+  // labels run toward the end of time; near the far edge they flip back so they're never clipped
+  const flip = (d: Date) => pos(d) > 100 - LABEL_MIN
+  const extent = (o: Item): [number, number] => (flip(o.s) ? [pos(o.s) - LABEL_MIN, pos(o.s)] : [pos(o.s), pos(o.s) + LABEL_MIN])
+
   const lanes = useMemo(() => {
     const tasks = state?.tasks ?? []
     const inRange = (o: Item) => o.e >= t0 && o.s < t1
@@ -44,9 +48,11 @@ export function Timeline() {
     })
     const taskItems = (ids: (id: string) => boolean): Item[] =>
       tasks.filter((t) => ids(t.label)).map((t) => {
-        // one point per task: its launch day (set, or estimated from start + expected time)
+        // one point per task: its launch day (set, or estimated from start + expected time).
+        // Overdue work launched before the range stays visible, pinned at the range's start.
         const [, launch] = span(t)
-        return { s: launch, e: launch, t }
+        const d = isOverdue(t, now) && launch < t0 ? t0 : launch
+        return { s: d, e: d, t }
       })
     const known = new Set(labels.map((l) => l.id))
     return [
@@ -55,7 +61,7 @@ export function Timeline() {
       { id: '__none', name: 'بدون مستوى', items: taskItems((x) => !known.has(x)).filter(inRange) },
     ]
       .filter((l) => l.id !== '__none' || l.items.length)
-      .map((l) => ({ ...l, rows: packRows(l.items, pos, LABEL_MIN) }))
+      .map((l) => ({ ...l, rows: packRows(l.items, extent) }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, labels, range])
 
@@ -113,8 +119,8 @@ export function Timeline() {
                       return (
                         <span
                           key={o.ev.id}
-                          className="absolute flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-blue-800"
-                          style={{ insetInlineStart: `calc(${pos(o.s)}% - 7px)`, top: top + 6 }}
+                          className={'absolute flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-blue-800' + (flip(o.s) ? ' flex-row-reverse' : '')}
+                          style={{ ...(flip(o.s) ? { insetInlineEnd: `calc(${100 - pos(o.s)}% - 7px)` } : { insetInlineStart: `calc(${pos(o.s)}% - 7px)` }), top: top + 6 }}
                           title={`${o.ev.name} · ${fmtDate(o.s)}`}
                         >
                           <Diamond size={14} aria-hidden className="fill-brand text-brand" />
@@ -130,8 +136,11 @@ export function Timeline() {
                         key={t.id}
                         type="button"
                         onClick={() => openTask(t.id)}
-                        className="absolute flex items-center gap-1.5 whitespace-nowrap rounded-full py-0.5 pe-2 text-xs font-medium text-fg-primary hover:bg-brand-soft"
-                        style={{ insetInlineStart: `calc(${pos(o.s)}% - 7px)`, top: top + 4 }}
+                        className={
+                          'absolute flex items-center gap-1.5 whitespace-nowrap rounded-full py-0.5 text-xs font-medium text-fg-primary hover:bg-brand-soft ' +
+                          (flip(o.s) ? 'flex-row-reverse ps-2' : 'pe-2')
+                        }
+                        style={{ ...(flip(o.s) ? { insetInlineEnd: `calc(${100 - pos(o.s)}% - 7px)` } : { insetInlineStart: `calc(${pos(o.s)}% - 7px)` }), top: top + 4 }}
                         title={`${t.title}\nالإطلاق: ${fmtDate(o.s)}${estimated ? ' (تقديري من تاريخ البدء والمدة المتوقعة)' : ''}\nالإنجاز ${t.progress}٪`}
                       >
                         <span
@@ -142,6 +151,7 @@ export function Timeline() {
                         {t.title}
                         <span className="font-normal text-fg-tertiary">{fmtDay(o.s)}</span>
                         {estimated && <span className="rounded-full bg-neutral-100 px-1.5 text-2xs font-normal text-fg-secondary">تقديري</span>}
+                        {isOverdue(t, now) && <span className="rounded-full bg-danger-50 px-1.5 text-2xs font-medium text-danger-700">متأخرة</span>}
                       </button>
                     )
                   }),

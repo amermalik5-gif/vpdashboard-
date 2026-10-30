@@ -65,6 +65,7 @@ export const api = {
   deleteEvent: (id: string) => call<void>('DELETE', `/events/${id}`),
   saveSettings: (s: Partial<Settings>) => call<Settings>('PUT', '/settings', s),
   restore: (auditId: number) => call<{ ok: true }>('POST', `/audit/${auditId}/restore`),
+  restoreBackup: (file: unknown) => call<{ ok: true; tasks: number; events: number }>('POST', '/backup/restore', file),
   login: (password: string) => call<{ isAdmin: boolean }>('POST', '/login', { password }, true),
   logout: () => call<{ isAdmin: boolean }>('POST', '/logout', undefined, true),
 }
@@ -77,10 +78,16 @@ export function useBoard() {
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [conn, setConn] = useState<Conn>('loading')
   const busy = useRef<Promise<void> | null>(null)
+  const again = useRef(false)
 
-  const refresh = useCallback(() => {
-    // collapse bursts of change events into one fetch at a time
-    busy.current ??= api
+  const refresh = useCallback((): Promise<void> => {
+    // one fetch at a time; a change that arrives mid-fetch triggers one more fetch afterwards,
+    // so the screen never settles on data older than the last save
+    if (busy.current) {
+      again.current = true
+      return busy.current
+    }
+    busy.current = api
       .state()
       .then(async (s) => {
         setState(s)
@@ -88,7 +95,13 @@ export function useBoard() {
         setAudit(s.isAdmin ? await api.audit(50).catch(() => []) : [])
       })
       .catch(() => setConn('offline'))
-      .finally(() => (busy.current = null))
+      .finally(() => {
+        busy.current = null
+        if (again.current) {
+          again.current = false
+          void refresh()
+        }
+      })
     return busy.current
   }, [])
 

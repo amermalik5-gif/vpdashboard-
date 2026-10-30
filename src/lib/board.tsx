@@ -55,7 +55,8 @@ export function BoardProvider({ children }: { children: ReactNode }) {
         refresh()
         return r
       } catch (e) {
-        if (e instanceof ApiError && e.status === 0) return
+        // cancelled at the name prompt: drop any optimistic change (e.g. a dragged bubble)
+        if (e instanceof ApiError && e.status === 0) return void refresh()
         toast(e instanceof Error ? e.message : 'تعذّر الحفظ.', 'error')
         refresh()
       }

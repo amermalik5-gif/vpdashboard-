@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { DatabaseBackup, Download, FileSpreadsheet, Plus, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { DatabaseBackup, Download, FileSpreadsheet, Plus, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { api } from '@/lib/api'
@@ -70,15 +70,24 @@ export function AdminPanel() {
   const saved = state?.settings
   const [s, setS] = useState<Settings | null>(saved ?? null)
   const [cats, setCats] = useState('')
+  // the server copy the form was loaded from: other people's saves must not wipe unsaved edits
+  const [base, setBase] = useState<Settings | null>(null)
+  const formOf = (x: Settings, c: string) => JSON.stringify({ ...x, categories: c.split('\n').map((v) => v.trim()).filter(Boolean) })
+  const edited = !!(s && base) && formOf(s, cats) !== formOf(base, base.categories.join('\n'))
+  const load = (x: Settings) => {
+    setS(x)
+    setCats(x.categories.join('\n'))
+    setBase(x)
+  }
   useEffect(() => {
-    if (saved) {
-      setS(saved)
-      setCats(saved.categories.join('\n'))
-    }
+    if (!saved) return
+    if (!base || (!edited && JSON.stringify(saved) !== JSON.stringify(base))) load(saved)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved])
-  if (!s || !saved) return null
+  if (!s || !saved || !base) return null
 
-  const dirty = JSON.stringify({ ...s, categories: cats.split('\n').map((c) => c.trim()).filter(Boolean) }) !== JSON.stringify(saved)
+  const dirty = formOf(s, cats) !== JSON.stringify(saved)
+  const changedElsewhere = edited && JSON.stringify(saved) !== JSON.stringify(base)
 
   const save = () =>
     run(
@@ -90,7 +99,9 @@ export function AdminPanel() {
           categories: cats.split('\n').map((c) => c.trim()).filter(Boolean),
         }),
       'حُفظت الإعدادات',
-    )
+    ).then((r) => {
+      if (r) load(r)
+    })
 
   return (
     <div className="grid gap-6">
@@ -100,7 +111,7 @@ export function AdminPanel() {
             <label htmlFor="cap" className="font-medium">
               الطاقة الأسبوعية (نقاط جهد)
             </label>
-            <p className="text-xs text-fg-tertiary">مجموع الجهد الذي يستطيع الفريق تحمّله في الأسبوع. مؤشر الطاقة يقارن حِمل الأسبوع الحالي بهذا الرقم.</p>
+            <p className="text-xs text-fg-tertiary">كم نقطة جهد يُنجز الفريق في أسبوع عادي. جهد كل مهمة (١–١٠) هو حجمها الكلي، ويُوزَّع ما تبقّى منه على الأسابيع حتى الإطلاق، والمتأخر يُحسب كاملًا في هذا الأسبوع. ابدأ بـ ٨ وعدّل حسب الواقع.</p>
           </div>
           <input
             id="cap"
@@ -134,13 +145,11 @@ export function AdminPanel() {
           <Button onClick={save} disabled={!dirty}>
             حفظ الإعدادات
           </Button>
+          {changedElsewhere && <p className="text-sm text-warning-700">تغيّرت الإعدادات من جهاز آخر. احفظ لاعتماد تعديلاتك، أو تجاهلها لعرض الأحدث.</p>}
           {dirty && (
             <Button
               variant="ghost"
-              onClick={() => {
-                setS(saved)
-                setCats(saved.categories.join('\n'))
-              }}
+              onClick={() => load(saved)}
             >
               تجاهل التغييرات
             </Button>
@@ -156,8 +165,44 @@ const linkBtn =
   'inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-md px-[18px] text-sm font-medium transition-colors duration-fast'
 
 /** Download a copy of everything on the board. Plain links: the browser saves the file with the admin cookie. */
+interface BackupFile {
+  app: string
+  format: number
+  exportedAt?: string
+  tasks: unknown[]
+  events: unknown[]
+  settings: unknown
+}
+
 function Backup() {
-  const { state } = useBoardCtx()
+  const { state, run } = useBoardCtx()
+  const input = useRef<HTMLInputElement>(null)
+  const [pending, setPending] = useState<BackupFile | null>(null)
+  const [error, setError] = useState('')
+
+  const pick = async (f: File | undefined) => {
+    setError('')
+    setPending(null)
+    if (!f) return
+    try {
+      const b = JSON.parse(await f.text()) as BackupFile
+      if (b.app !== 'vp-dashboard' || b.format !== 1 || !Array.isArray(b.tasks) || !Array.isArray(b.events)) throw new Error()
+      setPending(b)
+    } catch {
+      setError('هذا الملف ليس نسخة احتياطية من هذه اللوحة. اختر ملف JSON نزّلته من زر «نسخة احتياطية كاملة».')
+    } finally {
+      if (input.current) input.current.value = ''
+    }
+  }
+
+  const restore = async () => {
+    if (!pending) return
+    // the change log stays on the server; only the board's content is replaced
+    const { app, format, tasks, events, settings } = pending
+    const r = await run(() => api.restoreBackup({ app, format, tasks, events, settings }), 'تم الاسترجاع من النسخة الاحتياطية')
+    if (r) setPending(null)
+  }
+
   return (
     <Card padding="none" className="p-4 md:p-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -179,8 +224,29 @@ function Backup() {
             <FileSpreadsheet size={18} aria-hidden />
             جدول المهام (Excel)
           </a>
+          <Button variant="ghost" icon={<Upload size={18} aria-hidden />} onClick={() => input.current?.click()}>
+            استرجاع من نسخة احتياطية
+          </Button>
+          <input ref={input} id="restore-file" type="file" accept="application/json,.json" className="sr-only" aria-label="ملف النسخة الاحتياطية" onChange={(e) => pick(e.target.files?.[0])} />
         </div>
       </div>
+      {error && <p className="mt-4 text-sm text-danger-700">{error}</p>}
+      {pending && (
+        <div className="mt-4 flex flex-col gap-3 rounded-lg border border-warning-100 bg-warning-50 p-4 md:flex-row md:items-center md:justify-between">
+          <p className="text-sm text-warning-700">
+            سيستبدل هذا كل المهام والفعاليات والإعدادات الحالية بما في الملف: {toArabicDigits(pending.tasks.length)} مهام و{toArabicDigits(pending.events.length)} فعاليات
+            {pending.exportedAt ? ` (نسخة ${new Date(pending.exportedAt).toLocaleDateString('ar-SA-u-ca-gregory')})` : ''}. يحتفظ الخادم بنسخة من الوضع الحالي قبل الاسترجاع.
+          </p>
+          <div className="flex shrink-0 gap-2">
+            <Button className="bg-danger-700 hover:bg-danger-700" onClick={restore}>
+              نعم، استرجع
+            </Button>
+            <Button variant="ghost" onClick={() => setPending(null)}>
+              إلغاء
+            </Button>
+          </div>
+        </div>
+      )}
     </Card>
   )
 }
