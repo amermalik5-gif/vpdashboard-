@@ -47,7 +47,13 @@ export const clearAdminCookie = (res: Response) => res.clearCookie(COOKIE, { pat
 /** Admin-only routes: a valid session cookie and a same-origin request. */
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const origin = req.headers.origin
-  if (origin && new URL(origin).host !== req.headers.host) return res.status(403).json({ error: 'طلب من مصدر غير معروف.' })
+  let host = ''
+  try {
+    host = origin ? new URL(origin).host : ''
+  } catch {
+    /* «null» or a malformed origin: refuse below */
+  }
+  if (origin && host !== req.headers.host) return res.status(403).json({ error: 'طلب من مصدر غير معروف.' })
   if (!isAdmin(req)) return res.status(401).json({ error: 'هذا الإجراء متاح للمشرف فقط. سجّل الدخول ثم حاول مجددًا.' })
   next()
 }

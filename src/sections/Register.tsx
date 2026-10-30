@@ -6,12 +6,13 @@ import { Card } from '@/components/ui/Card'
 import { Tabs } from '@/components/ui/Tabs'
 import { useBoardCtx } from '@/lib/board'
 import { fmtDay, toArabicDigits } from '@/lib/format'
-import { STATUS, span, statusOf } from '@/lib/schedule'
+import { STATUS, daysOverdue, isOverdue, span, statusOf } from '@/lib/schedule'
 import { EXPECTATIONS, type Task } from '@/lib/types'
 
-type Sort = 'rank' | 'end' | 'progress' | 'recent'
+type Sort = 'rank' | 'late' | 'end' | 'progress' | 'recent'
 const SORTS: { id: Sort; label: string }[] = [
   { id: 'rank', label: 'الأهم أولًا' },
+  { id: 'late', label: 'المتأخرة أولًا' },
   { id: 'end', label: 'الأقرب إطلاقًا' },
   { id: 'progress', label: 'الأقل إنجازًا' },
   { id: 'recent', label: 'آخر تعديل' },
@@ -20,9 +21,21 @@ const SORTS: { id: Sort; label: string }[] = [
 const rank = (t: Task) => (t.priority ?? -1) + (t.urgency ?? -1)
 const SORT_FN: Record<Sort, (a: Task, b: Task) => number> = {
   rank: (a, b) => rank(b) - rank(a),
+  late: (a, b) => daysOverdue(b) * Number(isOverdue(b)) - daysOverdue(a) * Number(isOverdue(a)) || span(a)[1].getTime() - span(b)[1].getTime(),
   end: (a, b) => span(a)[1].getTime() - span(b)[1].getTime(),
   progress: (a, b) => a.progress - b.progress,
   recent: (a, b) => b.updatedAt - a.updatedAt,
+}
+
+/** «متأخرة ٣ أيام» — red, so the task that most needs attention can't be missed. */
+function Overdue({ t, className }: { t: Task; className?: string }) {
+  if (!isOverdue(t)) return null
+  const d = daysOverdue(t)
+  return (
+    <Badge tone="danger" size="xs" className={className}>
+      متأخرة {d === 1 ? 'يومًا' : d === 2 ? 'يومين' : d <= 10 ? `${toArabicDigits(d)} أيام` : `${toArabicDigits(d)} يومًا`}
+    </Badge>
+  )
 }
 
 const Num = ({ v }: { v: number | null }) => <span className="font-ui tabular">{v == null ? '–' : toArabicDigits(v)}</span>
@@ -100,6 +113,7 @@ export function Register() {
                   </td>
                   <td className="py-3 pe-3">
                     <span className="font-medium text-fg-primary">{t.title}</span>
+                    <Overdue t={t} className="ms-2" />
                     {t.draft && (
                       <Badge tone="warning" size="xs" className="ms-2">
                         بانتظار التأكيد
@@ -157,6 +171,7 @@ export function Register() {
                           {t.category}
                         </Badge>
                       )}
+                      <Overdue t={t} />
                       {t.draft && (
                         <Badge tone="warning" size="xs">
                           بانتظار التأكيد

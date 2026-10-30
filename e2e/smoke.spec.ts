@@ -28,7 +28,7 @@ test('anyone can add and edit a task; the change log names them', async ({ page 
 
   await page.locator('table').getByText('مهمة اختبار').click()
   await page.getByLabel('المسؤول', { exact: true }).fill('فريق الاتصال')
-  await page.getByRole('button', { name: 'حفظ التعديلات' }).click()
+  await page.getByRole('button', { name: 'حفظ', exact: true }).click()
 
   // the change log is hidden from visitors, on the page and in the API
   await expect(page.locator('#activity')).toHaveCount(0)
@@ -92,4 +92,77 @@ test('admin can download a full backup and a tasks spreadsheet', async ({ page, 
   expect(text.charCodeAt(0)).toBe(0xfeff)
   expect(text).toContain('تاريخ الإطلاق')
   expect(text).toContain('اليوم الرقمي ١٠')
+})
+
+const admin = async (page: import('@playwright/test').Page) => {
+  await page.getByRole('button', { name: 'دخول المشرف' }).click()
+  await page.getByLabel('كلمة المرور').fill('e2e-secret')
+  await page.getByRole('button', { name: 'دخول', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'إعدادات اللوحة' })).toBeVisible()
+}
+const iso = (days: number) => new Date(Date.now() + days * 864e5).toISOString().slice(0, 10)
+
+test('an overdue task stays visible with a badge and a count', async ({ page, request }) => {
+  await request.post('/api/tasks', { headers: { 'x-editor': 'qa' }, data: { title: 'مهمة متأخرة للاختبار', priority: 9, urgency: 9, effort: 6, progress: 30, start: iso(-60), end: iso(-10) } })
+  await page.goto('/')
+  await expect(page.locator('table').getByText('مهمة متأخرة للاختبار')).toBeVisible()
+  await expect(page.locator('table tr', { hasText: 'مهمة متأخرة للاختبار' }).getByText(/متأخرة \d|متأخرة [٠-٩]/)).toBeVisible()
+  const tile = page.locator('#top dl > div', { hasText: 'متأخرة' })
+  await expect(tile.locator('dd')).not.toHaveText('٠')
+  await expect(page.locator('#timeline').getByText('مهمة متأخرة للاختبار')).toBeVisible()
+})
+
+test('a typed «(مشرف)» is not trusted, and team saves keep the VP draft flag', async ({ page, request }) => {
+  const state = await (await request.get('/api/state')).json()
+  const draft = state.tasks.find((t: { draft: boolean }) => t.draft)
+  // progress-only save from a visitor: the draft flag must stay
+  await request.patch(`/api/tasks/${draft.id}`, { headers: { 'x-editor': encodeURIComponent('سامي (مشرف)') }, data: { progress: 15, draft: false } })
+  const after = (await (await request.get('/api/state')).json()).tasks.find((t: { id: string }) => t.id === draft.id)
+  expect(after.draft).toBe(true)
+  expect(after.updatedBy).toBe('سامي')
+  // a VP field change confirms it
+  await request.patch(`/api/tasks/${draft.id}`, { headers: { 'x-editor': 'vp' }, data: { priority: 3, draft: false } })
+  expect((await (await request.get('/api/state')).json()).tasks.find((t: { id: string }) => t.id === draft.id).draft).toBe(false)
+  await page.goto('/')
+})
+
+test('admin settings being typed survive someone else saving a task', async ({ page, request }) => {
+  await page.goto('/')
+  await admin(page)
+  await page.getByLabel('الطاقة الأسبوعية (نقاط جهد)').fill('35')
+  const state = await (await request.get('/api/state')).json()
+  await request.patch(`/api/tasks/${state.tasks[0].id}`, { headers: { 'x-editor': 'other' }, data: { owner: `x-${Date.now()}` } })
+  await page.waitForTimeout(1500)
+  await expect(page.getByLabel('الطاقة الأسبوعية (نقاط جهد)')).toHaveValue('35')
+})
+
+test('a downloaded backup can be restored', async ({ page }) => {
+  await page.goto('/')
+  await admin(page)
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: /نسخة احتياطية كاملة/ }).click()])
+  const file = await dl.path()
+  const before = JSON.parse(readFileSync(file, 'utf8')).tasks.map((t: { title: string }) => t.title).sort()
+  // change the board, then restore
+  const added = await page.request.post('/api/tasks', { headers: { 'x-editor': 'qa' }, data: { title: 'ستختفي بعد الاسترجاع' } })
+  expect(added.status()).toBe(201)
+  await page.locator('#restore-file').setInputFiles(file)
+  await page.getByRole('button', { name: 'نعم، استرجع' }).click()
+  // a restore is recorded under the admin's name: the first save asks for it
+  await page.getByLabel('الاسم').fill('المشرف')
+  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
+  await expect(page.getByText('تم الاسترجاع من النسخة الاحتياطية')).toBeVisible()
+  const now = (await (await page.request.get('/api/state')).json()).tasks.map((t: { title: string }) => t.title).sort()
+  expect(now).toEqual(before)
+})
+
+test('two quick saves in a row both reach another open screen', async ({ browser }) => {
+  const a = await browser.newPage()
+  const b = await browser.newPage()
+  await b.goto('/')
+  await expect(b.getByText('مباشر')).toBeVisible()
+  const state = await (await a.request.get('/api/state')).json()
+  const t = state.tasks[0]
+  await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'q' }, data: { owner: 'أولى' } })
+  await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'q' }, data: { owner: 'الثانية' } })
+  await expect(b.locator('table tr', { hasText: t.title }).getByText('الثانية')).toBeVisible({ timeout: 10_000 })
 })

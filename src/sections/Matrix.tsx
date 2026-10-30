@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { toArabicDigits } from '@/lib/format'
-import { STATUS, spreadBubbles, statusOf, type Bubble } from '@/lib/schedule'
+import { STATUS, spreadBubbles, statusOf, type Bubble, isOverdue } from '@/lib/schedule'
 
 /* plot geometry (SVG units). RTL: urgency grows toward the LEFT, priority toward the top. */
 const W = 720
@@ -176,14 +176,15 @@ export function Matrix() {
                 opacity={dim ? 0.25 : 1}
                 tabIndex={0}
                 role="button"
-                aria-label={`${p.t.title}: أهمية ${p.t.priority}، استعجال ${p.t.urgency}، جهد ${p.t.effort ?? '–'}، إنجاز ${p.t.progress}٪`}
+                aria-label={`${p.t.title}: أهمية ${p.t.priority}، استعجال ${p.t.urgency}، جهد ${p.t.effort ?? '–'}، إنجاز ${p.t.progress}٪${isOverdue(p.t) ? '، متأخرة' : ''}`}
                 onPointerDown={(e) => onDown(e, p.t.id)}
                 onPointerMove={(e) => onMove(e, p.t.id)}
                 onPointerUp={(e) => onUp(e, p.t.id)}
                 onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(p.t.id))}
               >
-                <title>{`${p.t.title}\nالأهمية ${toArabicDigits(p.t.priority ?? 0)} · الاستعجال ${toArabicDigits(p.t.urgency ?? 0)} · الجهد ${toArabicDigits(p.t.effort ?? 0)} · الإنجاز ${toArabicDigits(p.t.progress)}٪`}</title>
+                <title>{`${p.t.title}${isOverdue(p.t) ? ' · متأخرة' : ''}\nالأهمية ${toArabicDigits(p.t.priority ?? 0)} · الاستعجال ${toArabicDigits(p.t.urgency ?? 0)} · الجهد ${toArabicDigits(p.t.effort ?? 0)} · الإنجاز ${toArabicDigits(p.t.progress)}٪`}</title>
                 <circle cx={x} cy={y} r={p.r} fill={st.color} fillOpacity={0.85} stroke="#fff" strokeWidth={2} />
+                {isOverdue(p.t) && <circle cx={x} cy={y} r={p.r + 2} fill="none" stroke="var(--danger-700)" strokeWidth={4} />}
                 {p.t.draft && <circle cx={x} cy={y} r={p.r + 4} fill="none" stroke={st.color} strokeDasharray="3 3" strokeWidth={1.5} />}
                 {p.r >= 22 && (
                   <text x={x} y={y + 5} textAnchor="middle" fontSize={12 * Math.min(k, 1.3)} fontWeight={500} fill="#fff" pointerEvents="none">

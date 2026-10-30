@@ -9,11 +9,11 @@ const TONE = {
   red: { color: 'var(--status-red)', name: 'تجاوز الطاقة الاستيعابية' },
 }
 
-/** Health meter: this week's load against the team's weekly capacity (set by the admin in the settings). */
+/** Health meter: this week's share of the remaining effort against the team's weekly capacity (set by the admin). */
 export function Capacity() {
   const { state } = useBoardCtx()
   const tasks = state?.tasks ?? []
-  const cap = Math.max(1, state?.settings.weeklyCapacity ?? 20)
+  const cap = Math.max(1, state?.settings.weeklyCapacity ?? 8)
 
   const ws = weekStart(today())
   const load = weekLoad(tasks, ws)
@@ -59,7 +59,7 @@ export function Capacity() {
           {toArabicDigits(Math.round(pct))}٪
         </text>
         <text x={cx} y={cy + 70} textAnchor="middle" direction="rtl" fontSize={13} fill="var(--neutral-600)">
-          {toArabicDigits(load)} من {toArabicDigits(cap)} نقطة جهد
+          {toArabicDigits(Number(load.toFixed(1)).toString().replace('.', '٫'))} من {toArabicDigits(cap)} نقطة جهد هذا الأسبوع
         </text>
       </svg>
       <p className="mt-1 text-center text-sm font-medium" style={{ color: tone.color }}>

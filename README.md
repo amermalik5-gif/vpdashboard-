@@ -3,7 +3,8 @@
 لوحة مشتركة للمهام والفعاليات: يحدد نائب الرئيس **درجة الأهمية (مهمة) ومستوى الاستعجال (طارئة) والمدة المتوقعة**، ويحدّث الفريق **الجهد ونسبة الإنجاز**، فتظهر الصورة في:
 
 - **مصفوفة الأهمية والاستعجال**: كل مهمة فقاعة. حجمها يمثل الجهد، ولونها يمثل نسبة الإنجاز: أحمر أقل من ٢٠٪، أصفر من ٢٠ إلى ٣٩٪، أخضر ٤٠٪ فأكثر. يمكن سحب الفقاعة لتغيير ترتيبها.
-- **مؤشر الطاقة الاستيعابية**: حِمل هذا الأسبوع مقارنةً بطاقة الفريق الأسبوعية التي يحددها المشرف.
+- **مؤشر الطاقة الاستيعابية**: حِمل هذا الأسبوع مقارنةً بطاقة الفريق الأسبوعية التي يحددها المشرف. جهد كل مهمة (١–١٠) هو حجمها الكلي؛ يُوزَّع ما تبقّى منه (حسب نسبة الإنجاز) على الأسابيع حتى الإطلاق، والمتأخر يُحسب كاملًا في الأسبوع الحالي.
+- **المهام المتأخرة**: كل مهمة غير مكتملة تجاوزت تاريخ إطلاقها تظهر بشارة «متأخرة» في الجدول والمصفوفة والخط الزمني، وبعدّاد في الشريط العلوي.
 - **الفعاليات والمحطات** و**سجل المهام** و**الخط الزمني** بمسار لكل مستوى.
 - **سجل التعديلات** (للمشرف فقط): يُسجَّل فيه من غيّر ماذا ومتى.
 
@@ -15,6 +16,8 @@
 | حذف المهام والفعاليات | | ✓ |
 | تغيير الطاقة الأسبوعية وقوائم المستويات والفئات وأنواع الفعاليات | | ✓ |
 | عرض سجل التعديلات واسترجاع قيمة سابقة أو عنصر محذوف | | ✓ |
+| اعتماد قيم نائب الرئيس المقترحة كما هي («تأكيد القيم») | | ✓ |
+| تنزيل نسخة احتياطية والاسترجاع منها | | ✓ |
 
 يُطلب من كل شخص اسمه مرة واحدة عند أول حفظ، ليظهر في سجل التعديلات الذي يراه المشرف. يدخل المشرف بكلمة المرور المحفوظة في `ADMIN_PASSWORD`.
 
@@ -69,6 +72,12 @@ npm run test:e2e
 
 Health check: `GET /healthz`.
 
+### Backups
+
+- **Automatic:** a copy of the database is written once a day to `/data/backups/daily-*.db` on the same volume (newest 14 kept).
+- **Manual:** the admin downloads a JSON backup from the board settings and can restore it there; the server first saves `/data/backups/before-restore-*.db`.
+- **Off-site:** download a JSON backup regularly, since the daily copies live on the same volume as the database.
+
 ## API
 
 All routes are under `/api`. Writes need an `x-editor` header (URL-encoded display name).
@@ -80,5 +89,5 @@ All routes are under `/api`. Writes need an `x-editor` header (URL-encoded displ
 | POST, PATCH | `/tasks`, `/tasks/:id`, `/events`, `/events/:id` | everyone (rate limited) |
 | DELETE | `/tasks/:id`, `/events/:id` | admin |
 | PUT | `/settings` | admin |
-| POST | `/audit/:id/restore` | admin |
+| POST | `/audit/:id/restore`, `/backup/restore` | admin |
 | POST | `/login`, `/logout` | admin session (httpOnly signed cookie, 12 h) |

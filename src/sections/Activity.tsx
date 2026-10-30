@@ -27,6 +27,10 @@ function sentence(a: AuditEntry, labelName: (id: string) => string) {
     case 'delete':
       return `حذف ${what}`
     case 'restore':
+      if (a.entityId === 'backup') {
+        const n = a.new as { tasks?: number; events?: number } | null
+        return `استرجع نسخة احتياطية (${toArabicDigits(n?.tasks ?? 0)} مهام، ${toArabicDigits(n?.events ?? 0)} فعاليات)`
+      }
       return a.field ? `استرجع ${FIELD_NAMES[a.field] ?? a.field} في ${what} إلى ${show(a.field, a.new, labelName)}` : `استرجع ${what}`
     default:
       if (a.entity === 'settings') return `غيّر ${what}${typeof a.new === 'number' ? ` من ${show(a.field, a.old, labelName)} إلى ${show(a.field, a.new, labelName)}` : ''}`

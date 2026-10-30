@@ -9,6 +9,9 @@ import { fmtDay, fmtTime, toArabicDigits } from '@/lib/format'
 import { addDays, isoDate, parseDate, STATUS, statusOf, today } from '@/lib/schedule'
 import { EXPECTATIONS, type Expectation, type Task } from '@/lib/types'
 
+/** Fields the VP sets (the shaded group); changing one confirms a seeded draft. */
+const VP_FIELDS = ['priority', 'urgency', 'expectation', 'category', 'label'] as const
+
 type Form = Pick<Task, 'title' | 'category' | 'label' | 'priority' | 'urgency' | 'expectation' | 'effort' | 'progress' | 'start' | 'end' | 'owner' | 'notes'>
 
 const blank = (): Form => ({
@@ -74,18 +77,24 @@ export function TaskSheet() {
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }))
   const categories = state?.settings.categories ?? []
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault()
+  // a seeded draft is confirmed when the VP's own values change, or when the admin confirms as is
+  const save = async (confirm: boolean) => {
     setSaving(true)
     let ok: unknown
     if (task) {
       const patch: Partial<Task> = {}
       for (const k of Object.keys(f) as (keyof Form)[]) if (f[k] !== task[k]) (patch as Record<string, unknown>)[k] = f[k]
-      if (task.draft) patch.draft = false
-      ok = Object.keys(patch).length ? await run(() => api.updateTask(task.id, patch), task.draft ? 'حُفظت المهمة وأُكّدت' : 'حُفظت التعديلات') : true
+      const vpChanged = VP_FIELDS.some((k) => k in patch)
+      if (task.draft && (confirm || vpChanged)) patch.draft = false
+      const done = patch.draft === false ? 'حُفظت المهمة وأُكّدت' : 'حُفظت التعديلات'
+      ok = Object.keys(patch).length ? await run(() => api.updateTask(task.id, patch), done) : true
     } else ok = await run(() => api.addTask(f), 'أُضيفت المهمة')
     setSaving(false)
     if (ok) closeTask()
+  }
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    void save(false)
   }
 
   const remove = async () => {
@@ -120,7 +129,7 @@ export function TaskSheet() {
       <form onSubmit={submit} className="mx-auto flex max-w-3xl flex-col gap-5 p-5 md:p-8">
         {task?.draft && (
           <p className="rounded-lg border border-warning-100 bg-warning-50 px-4 py-3 text-sm text-warning-700">
-            هذه القيم مقترحة من اجتماع الانطلاق. راجعها ثم اضغط «حفظ وتأكيد» لاعتمادها.
+            هذه القيم مقترحة من اجتماع الانطلاق. تُعتمد عند تغيير أيٍّ من قيم نائب الرئيس، ويستطيع المشرف اعتمادها كما هي بزر «تأكيد القيم».
           </p>
         )}
         <div>
@@ -225,8 +234,13 @@ export function TaskSheet() {
 
         <div className="sticky bottom-0 -mx-5 flex flex-wrap items-center gap-3 border-t border-line-subtle bg-page px-5 py-4 md:-mx-8 md:px-8">
           <Button type="submit" size="lg" disabled={saving}>
-            {task?.draft ? 'حفظ وتأكيد' : task ? 'حفظ التعديلات' : 'إضافة المهمة'}
+            {task ? 'حفظ' : 'إضافة المهمة'}
           </Button>
+          {task?.draft && isAdmin && (
+            <Button variant="outline" size="lg" disabled={saving} onClick={() => void save(true)}>
+              تأكيد القيم
+            </Button>
+          )}
           <Button variant="ghost" size="lg" onClick={closeTask}>
             إلغاء
           </Button>

@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { api } from './routes.ts'
 import { DB_FILE } from './db.ts'
+import { scheduleBackups } from './backup.ts'
 
 const app = express()
 app.disable('x-powered-by')
@@ -12,6 +13,8 @@ app.use((_req, res, next) => {
   res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin', 'X-Frame-Options': 'SAMEORIGIN' })
   next()
 })
+// a full backup file can be larger than ordinary edits
+app.use('/api/backup/restore', express.json({ limit: '10mb' }))
 app.use('/api', express.json({ limit: '64kb' }), api)
 app.get('/healthz', (_req, res) => res.json({ ok: true }))
 
@@ -21,6 +24,8 @@ if (existsSync(dist)) {
   app.use(express.static(dist, { index: false }))
   app.get('*', (_req, res) => res.sendFile(`${dist}/index.html`))
 }
+
+scheduleBackups()
 
 const port = Number(process.env.PORT) || 3001
 app.listen(port, () => console.log(`[vp-dashboard] http://localhost:${port}  (database: ${DB_FILE})`))

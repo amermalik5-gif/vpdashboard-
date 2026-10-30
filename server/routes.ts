@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express'
 import { EXPECTATIONS, EVENT_FIELDS, TASK_FIELDS, type EventItem, type Option, type Settings, type Task } from '../src/lib/types.ts'
 import * as store from './db.ts'
+import { snapshot } from './backup.ts'
 import { checkPassword, clearAdminCookie, isAdmin, rateLimit, requireAdmin, setAdminCookie } from './auth.ts'
 
 /* ---------- live updates (Server-Sent Events) ---------- */
@@ -106,6 +107,8 @@ function editor(req: Request): string {
   } catch {
     /* malformed header */
   }
+  // only the server marks a real admin session; a typed «(مشرف)» is not a credential
+  name = name.replace(/[(\[]?\s*مشرف\s*[)\]]?/g, '').replace(/\s+/g, ' ').trim()
   if (!name) throw new Invalid('اكتب اسمك قبل الحفظ ليظهر في سجل التعديلات.')
   return isAdmin(req) ? `${name} (مشرف)` : name
 }
@@ -119,6 +122,9 @@ const handle = (fn: (req: Request, res: Response) => unknown) => (req: Request, 
     res.status(500).json({ error: 'تعذّر الحفظ. حاول مرة أخرى بعد قليل.' })
   }
 }
+
+/** Fields the VP sets; changing one of them confirms a seeded draft. */
+const VP_FIELDS = ['priority', 'urgency', 'expectation', 'category', 'label']
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
@@ -191,6 +197,60 @@ api.get('/backup/tasks.csv', requireAdmin, (_req, res) => {
   res.type('text/csv; charset=utf-8').send(csv)
 })
 
+/* restore a full JSON backup (admin): a safety copy first, then replace everything in one go */
+api.post(
+  '/backup/restore',
+  requireAdmin,
+  handle((req, res) => {
+    const by = editor(req)
+    const b = req.body as { app?: unknown; format?: unknown; tasks?: unknown; events?: unknown; settings?: Partial<Settings> }
+    if (!b || b.app !== 'vp-dashboard' || b.format !== 1 || !Array.isArray(b.tasks) || !Array.isArray(b.events) || !b.settings)
+      throw new Invalid('هذا الملف ليس نسخة احتياطية من هذه اللوحة.')
+    if (b.tasks.length > 2000 || b.events.length > 2000) throw new Invalid('الملف أكبر من المتوقع.')
+    const id = (v: unknown) => {
+      const x = typeof v === 'string' ? v.trim().slice(0, 64) : ''
+      if (!/^[\w-]+$/.test(x)) throw new Invalid('معرّف غير صالح في الملف.')
+      return x
+    }
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : Date.now())
+    const tasks = b.tasks.map((raw) => {
+      const t = pick(raw, TASK_FIELDS, cleanTaskField) as Task
+      if (!t.title) throw new Invalid('مهمة بلا عنوان في الملف.')
+      const r = raw as Record<string, unknown>
+      return { ...t, id: id(r.id), createdAt: num(r.createdAt), progress: t.progress ?? 0, draft: !!t.draft }
+    })
+    const events = b.events.map((raw) => {
+      const e = pick(raw, EVENT_FIELDS, cleanEventField) as EventItem
+      if (!e.name) throw new Invalid('فعالية بلا اسم في الملف.')
+      const r = raw as Record<string, unknown>
+      return { ...e, id: id(r.id), createdAt: num(r.createdAt), draft: !!e.draft }
+    })
+    const st = b.settings
+    const settings: Partial<Settings> = {
+      weeklyCapacity: intIn(st.weeklyCapacity, 1, 1000, 'الطاقة الأسبوعية', false)!,
+      labels: cleanOptions(st.labels, 'المستويات'),
+      eventTypes: cleanOptions(st.eventTypes, 'أنواع الفعاليات'),
+      categories: Array.isArray(st.categories) ? [...new Set(st.categories.map((c) => str(c, 80, 'الفئة')).filter(Boolean))] : [],
+    }
+    const safety = snapshot('before-restore')
+    store.db.transaction(() => {
+      store.db.prepare('DELETE FROM tasks').run()
+      store.db.prepare('DELETE FROM events').run()
+      for (const t of tasks)
+        store.insertTask(
+          { id: t.id, createdAt: t.createdAt, title: t.title, category: t.category ?? '', label: t.label ?? '', priority: t.priority ?? null, urgency: t.urgency ?? null, expectation: t.expectation ?? '', effort: t.effort ?? null, progress: t.progress, start: t.start ?? '', end: t.end ?? '', owner: t.owner ?? '', notes: t.notes ?? '', draft: t.draft },
+          by,
+        )
+      for (const e of events) store.insertEvent({ id: e.id, createdAt: e.createdAt, name: e.name, date: e.date ?? '', type: e.type ?? '', notes: e.notes ?? '', draft: e.draft }, by)
+      for (const [k, v] of Object.entries(settings)) store.setSetting(k as keyof Settings, v)
+      store.audit({ entity: 'settings', entityId: 'backup', entityTitle: 'استرجاع نسخة احتياطية', action: 'restore', field: '', old: null, new: { tasks: tasks.length, events: events.length }, by })
+    })()
+    console.log(`[backup] restored ${tasks.length} tasks and ${events.length} events; previous data kept at ${safety}`)
+    changed()
+    res.json({ ok: true, tasks: tasks.length, events: events.length })
+  }),
+)
+
 /* ---------- tasks: everyone adds and edits, admin deletes ---------- */
 api.post(
   '/tasks',
@@ -233,6 +293,8 @@ api.patch(
     const f = pick(req.body, TASK_FIELDS, cleanTaskField) as Record<string, unknown>
     const diff: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(f)) if (!same(v, before[k as keyof Task])) diff[k] = v
+    // «بانتظار تأكيد نائب الرئيس» clears only when the VP's own values are set, or the admin confirms
+    if (diff.draft === false && !isAdmin(req) && !VP_FIELDS.some((k) => k in diff)) delete diff.draft
     if (Object.keys(diff).length) {
       store.db.transaction(() => {
         store.updateRow('tasks', before.id, diff, by)
@@ -284,6 +346,8 @@ api.patch(
     const f = pick(req.body, EVENT_FIELDS, cleanEventField) as Record<string, unknown>
     const diff: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(f)) if (!same(v, before[k as keyof EventItem])) diff[k] = v
+    // an event is confirmed by the admin, or by setting its date
+    if (diff.draft === false && !isAdmin(req) && !diff.date) delete diff.draft
     if (Object.keys(diff).length) {
       store.db.transaction(() => {
         store.updateRow('events', before.id, diff, by)
@@ -370,7 +434,7 @@ api.post(
           if (store.getEvent(entry.entityId)) throw new Invalid('هذه الفعالية موجودة بالفعل.')
           store.insertEvent({ ...(entry.old as EventItem) }, by)
         }
-      } else if (entry.action === 'update' || entry.action === 'restore') {
+      } else if ((entry.action === 'update' || entry.action === 'restore') && entry.field) {
         if (entry.entity === 'settings') store.setSetting(entry.field as keyof Settings, entry.old)
         else {
           const table = entry.entity === 'task' ? 'tasks' : 'events'
