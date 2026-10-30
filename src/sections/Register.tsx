@@ -8,7 +8,7 @@ import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDay, toArabicDigits } from '@/lib/format'
-import { STATUS, daysOverdue, hasDate, isOverdue, span, statusOf } from '@/lib/schedule'
+import { STATUS, daysOverdue, hasDate, isOverdue, itemNumbers, span, statusOf } from '@/lib/schedule'
 import { ITEM_KINDS, type ItemKind, type Task } from '@/lib/types'
 
 type Sort = 'rank' | 'late' | 'end' | 'progress' | 'recent'
@@ -122,6 +122,8 @@ export function Register() {
       .filter((t) => !needle || `${t.title} ${t.category} ${t.notes} ${labelName(t.label)} ${t.kind ? ITEM_KINDS[t.kind] : ''}`.includes(needle))
       .sort(SORT_FN[sort])
   }, [state, q, sort, labelName])
+  // the same numbers as the bubbles in the matrix
+  const numbers = useMemo(() => itemNumbers(state?.tasks ?? []), [state])
 
   // every cell saves on its own: shown at once, then confirmed by the server
   const save = (t: Task, patch: Partial<Task>) => {
@@ -148,10 +150,11 @@ export function Register() {
 
       {/* wide screens: one table, every value editable in place */}
       <div className="hidden overflow-x-auto lg:block">
-        <table className="w-full min-w-[1240px] border-collapse text-sm">
+        <table className="w-full min-w-[1280px] border-collapse text-sm">
           <thead>
             <tr className="text-xs text-fg-tertiary">
-              <th className="w-8 py-3 ps-4 font-medium" aria-label="الحالة" />
+              <th className="w-10 py-3 ps-4 text-center font-medium">#</th>
+              <th className="w-6 py-3 font-medium" aria-label="الحالة" />
               <th className="min-w-[230px] py-3 text-start font-medium">المهمة / الفعالية</th>
               <th className="w-[92px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">النوع</th>
               <th className="w-[150px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">الفئة</th>
@@ -170,7 +173,8 @@ export function Register() {
               const name = t.title
               return (
                 <tr key={t.id} className="border-t border-line-subtle align-middle transition-colors duration-fast hover:bg-neutral-25">
-                  <td className="py-2 ps-4">
+                  <td className="py-2 ps-4 text-center font-ui text-sm font-semibold tabular text-fg-secondary">{toArabicDigits(numbers.get(t.id) ?? 0)}</td>
+                  <td className="py-2">
                     <span className="block h-3 w-3 rounded-full" style={{ background: STATUS[statusOf(t)].color }} title={STATUS[statusOf(t)].name} />
                   </td>
                   <td className="py-2 pe-3">
@@ -278,7 +282,10 @@ export function Register() {
               <div className="flex items-start gap-3">
                 <span className="mt-1.5 h-3 w-3 shrink-0 rounded-full" style={{ background: STATUS[statusOf(t)].color }} />
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium">{t.title}</p>
+                  <p className="font-medium">
+                    <span className="me-1.5 font-ui tabular text-fg-tertiary">{toArabicDigits(numbers.get(t.id) ?? 0)}.</span>
+                    {t.title}
+                  </p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {t.kind && (
                       <Badge tone="blue" size="xs">

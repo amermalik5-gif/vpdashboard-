@@ -68,6 +68,8 @@ export function realItems(): NewTask[] {
   ]
 }
 
-export function seed(addTask: (t: NewTask, by: string) => unknown) {
-  for (const t of realItems()) addTask(t, 'النظام')
+export function seed(addTask: (t: NewTask & { createdAt?: number }, by: string) => unknown) {
+  // one millisecond apart, so the items keep the VP's numbering (1, 2, 3…)
+  const base = Date.now()
+  realItems().forEach((t, i) => addTask({ ...t, createdAt: base + i }, 'النظام'))
 }
