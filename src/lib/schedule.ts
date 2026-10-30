@@ -46,6 +46,15 @@ export const hasDate = (t: Task) => !!t.end || !!t.expectation
 export const isOverdue = (t: Task, now = today()) => isOpen(t) && hasDate(t) && span(t)[1] < now
 export const daysOverdue = (t: Task, now = today()) => Math.max(0, daysBetween(span(t)[1], now))
 
+/**
+ * A stable number per item, in the order items were added: the VP's own list keeps its
+ * numbering (1–12), later items follow. The matrix bubbles and the table share it.
+ */
+export function itemNumbers(tasks: Task[]): Map<string, number> {
+  const order = [...tasks].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+  return new Map(order.map((t, i) => [t.id, i + 1]))
+}
+
 /* ---------- capacity ---------- */
 /**
  * This week's share of the team's effort. Effort is a task's total size (1–10, entered by hand),

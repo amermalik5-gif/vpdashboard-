@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { toArabicDigits } from '@/lib/format'
-import { STATUS, spreadBubbles, statusOf, type Bubble, isOverdue } from '@/lib/schedule'
+import { STATUS, itemNumbers, spreadBubbles, statusOf, isOverdue } from '@/lib/schedule'
 
 /* plot geometry (SVG units). RTL: urgency grows toward the LEFT, priority toward the top. */
 const W = 720
@@ -13,7 +13,8 @@ const H = 560
 const BOX = { x0: 20, x1: W - 52, y0: 40, y1: H - 64 }
 const sx = (u: number) => BOX.x1 - (Math.min(10, Math.max(0, u)) / 10) * (BOX.x1 - BOX.x0)
 const sy = (p: number) => BOX.y1 - (Math.min(10, Math.max(0, p)) / 10) * (BOX.y1 - BOX.y0)
-const rad = (e: number | null) => 9 + Math.min(10, Math.max(1, e ?? 1)) * 2.9
+// big enough at effort 1 to hold a two-digit number
+const rad = (e: number | null) => 11 + Math.min(10, Math.max(1, e ?? 1)) * 2.7
 
 const QUADRANTS = [
   { name: 'مهمة وطارئة', x: BOX.x0 + 2, y: BOX.y0 - 34, anchor: 'start' as const, hot: true },
@@ -22,44 +23,12 @@ const QUADRANTS = [
   { name: 'غير مهمة وغير طارئة', x: BOX.x1 - 10, y: BOX.y1 - 30, anchor: 'end' as const },
 ]
 
-interface Placed extends Bubble {
-  lx: number
-  ly: number
-  label: string
-}
-
-/** Put each name under its bubble; if it would hit another name, try above, then beside. */
-function placeLabels(items: Bubble[], k: number): Placed[] {
-  const boxes: { x0: number; x1: number; y0: number; y1: number }[] = items.map((b) => ({ x0: b.x - b.r, x1: b.x + b.r, y0: b.y - b.r, y1: b.y + b.r }))
-  const hit = (b: (typeof boxes)[number]) => boxes.some((o) => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0)
-  return items.map((p) => {
-    // the name plus its progress, so every bubble says how far along it is
-    const name = p.t.title.length > 20 ? `${p.t.title.slice(0, 19)}…` : p.t.title
-    const label = `${name} · ${toArabicDigits(p.t.progress)}٪`
-    const w = label.length * 6.4 * k + 8
-    const h = 13 * k
-    const options = [
-      { lx: p.x, ly: p.y + p.r + h + 2 },
-      { lx: p.x, ly: p.y - p.r - 6 },
-      { lx: p.x - p.r - w / 2 - 4, ly: p.y + h / 3 },
-      { lx: p.x + p.r + w / 2 + 4, ly: p.y + h / 3 },
-      { lx: p.x, ly: p.y + p.r + 2 * h + 4 },
-      { lx: p.x, ly: p.y - p.r - h - 8 },
-    ]
-    const boxOf = (o: { lx: number; ly: number }) => ({ x0: o.lx - w / 2, x1: o.lx + w / 2, y0: o.ly - h, y1: o.ly + 3 })
-    const pick = options.find((o) => {
-      const b = boxOf(o)
-      return b.x0 >= 0 && b.x1 <= W && b.y1 <= BOX.y1 + 2 && !hit(b)
-    }) ?? options[0]
-    boxes.push(boxOf(pick))
-    return { ...p, ...pick, label }
-  })
-}
-
 export function Matrix() {
   const { state, labels, openTask, run, patchLocal } = useBoardCtx()
   const [filter, setFilter] = useState<string[]>([])
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null)
+  // the item under the pointer, in the matrix or the list beside it: both highlight it
+  const [hover, setHover] = useState<string | null>(null)
   const svg = useRef<SVGSVGElement>(null)
   const start = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const tasks = state?.tasks ?? []
@@ -80,8 +49,10 @@ export function Matrix() {
       .filter((t) => t.priority != null && t.urgency != null)
       .map((t) => ({ t, x: sx(t.urgency!), y: sy(t.priority!), r: rad(t.effort) }))
       .sort((a, b) => b.r - a.r)
-    return placeLabels(spreadBubbles(items, BOX), k)
-  }, [tasks, k])
+    return spreadBubbles(items, BOX)
+  }, [tasks])
+  const numbers = useMemo(() => itemNumbers(tasks), [tasks])
+  const listed = [...placed].sort((a, b) => numbers.get(a.t.id)! - numbers.get(b.t.id)!)
 
   const unplaced = tasks.filter((t) => t.priority == null || t.urgency == null)
 
@@ -125,7 +96,7 @@ export function Matrix() {
       <div className="mb-4 flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="text-xl font-medium">الأهمية والاستعجال</h3>
-          <p className="text-sm text-fg-tertiary">حجم الفقاعة = الجهد · لونها = نسبة الإنجاز · اسحبها لتغيير ترتيبها</p>
+          <p className="text-sm text-fg-tertiary">الرقم = رقم البند في الجدول · حجم الفقاعة = الجهد · لونها = نسبة الإنجاز · اسحبها لتغيير ترتيبها</p>
         </div>
         <FilterChips
           label="تصفية حسب المستوى"
@@ -137,8 +108,9 @@ export function Matrix() {
         />
       </div>
 
-      <div ref={wrap}>
-        <svg ref={svg} viewBox={`0 0 ${W} ${H}`} className="mx-auto w-full max-w-[920px] touch-none select-none"
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div ref={wrap} className="min-w-0">
+        <svg ref={svg} viewBox={`0 0 ${W} ${H}`} className="mx-auto w-full max-w-[880px] touch-none select-none"
           style={{ direction: 'ltr' }} role="group" aria-label="مصفوفة المهام حسب درجة الأهمية ومستوى الاستعجال">
           {/* quadrants */}
           <rect x={BOX.x0} y={BOX.y0} width={sx(5) - BOX.x0} height={sy(5) - BOX.y0} fill="var(--danger-50)" />
@@ -164,7 +136,7 @@ export function Matrix() {
             درجة الأهمية ←
           </text>
 
-          {/* bubbles */}
+          {/* bubbles, each with its item number */}
           {placed.map((p) => {
             const st = STATUS[statusOf(p.t)]
             const dim = filter.length > 0 && !filter.includes(p.t.label)
@@ -179,12 +151,16 @@ export function Matrix() {
                 tabIndex={0}
                 role="button"
                 aria-label={`${p.t.title}: أهمية ${p.t.priority}، استعجال ${p.t.urgency}، جهد ${p.t.effort ?? 'غير محدد'}، إنجاز ${p.t.progress}٪${isOverdue(p.t) ? '، متأخرة' : ''}`}
+                onPointerEnter={() => setHover(p.t.id)}
+                onPointerLeave={() => setHover(null)}
+                onFocus={() => setHover(p.t.id)}
+                onBlur={() => setHover(null)}
                 onPointerDown={(e) => onDown(e, p.t.id)}
                 onPointerMove={(e) => onMove(e, p.t.id)}
                 onPointerUp={(e) => onUp(e, p.t.id)}
                 onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(p.t.id))}
               >
-                <title>{`${p.t.title}${isOverdue(p.t) ? ' · متأخرة' : ''}\nالأهمية ${toArabicDigits(p.t.priority ?? 0)} · الاستعجال ${toArabicDigits(p.t.urgency ?? 0)} · الجهد ${toArabicDigits(p.t.effort ?? 0)} · الإنجاز ${toArabicDigits(p.t.progress)}٪`}</title>
+                <title>{`${toArabicDigits(numbers.get(p.t.id)!)}. ${p.t.title}${isOverdue(p.t) ? ' · متأخرة' : ''}\nالأهمية ${toArabicDigits(p.t.priority ?? 0)} · الاستعجال ${toArabicDigits(p.t.urgency ?? 0)} · الجهد ${toArabicDigits(p.t.effort ?? 0)} · الإنجاز ${toArabicDigits(p.t.progress)}٪`}</title>
                 {p.t.effort == null ? (
                   // no effort entered yet: a hollow outline, so it can't pass for effort 1
                   <circle cx={x} cy={y} r={p.r} fill="var(--surface, #fff)" stroke={st.color} strokeWidth={2.5} />
@@ -193,11 +169,18 @@ export function Matrix() {
                 )}
                 {isOverdue(p.t) && <circle cx={x} cy={y} r={p.r + 2} fill="none" stroke="var(--danger-700)" strokeWidth={4} />}
                 {p.t.draft && <circle cx={x} cy={y} r={p.r + 4} fill="none" stroke={st.color} strokeDasharray="3 3" strokeWidth={1.5} />}
-                {!d && (
-                  <text x={p.lx} y={p.ly} textAnchor="middle" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)" stroke="#fff" strokeWidth={3} paintOrder="stroke" pointerEvents="none">
-                    {p.label}
-                  </text>
-                )}
+                {hover === p.t.id && <circle cx={x} cy={y} r={p.r + 6} fill="none" stroke="var(--nwc-blue-500)" strokeWidth={2.5} />}
+                <text
+                  x={x}
+                  y={y + 4.5 * Math.min(k, 1.4)}
+                  textAnchor="middle"
+                  fontSize={13 * Math.min(k, 1.4)}
+                  fontWeight={700}
+                  fill={p.t.effort == null ? 'var(--neutral-800)' : '#fff'}
+                  pointerEvents="none"
+                >
+                  {toArabicDigits(numbers.get(p.t.id)!)}
+                </text>
               </g>
             )
           })}
@@ -222,6 +205,41 @@ export function Matrix() {
             </g>
           ))}
         </svg>
+      </div>
+
+      {/* the key: number → item, in the same order as the VP's list */}
+      <ol className="flex max-h-[560px] flex-col gap-0.5 overflow-y-auto lg:border-s lg:border-line-subtle lg:ps-4" aria-label="أرقام البنود في المصفوفة">
+        {listed.map((p) => {
+          const st = STATUS[statusOf(p.t)]
+          const n = numbers.get(p.t.id)!
+          return (
+            <li key={p.t.id}>
+              <button
+                type="button"
+                onClick={() => openTask(p.t.id)}
+                onPointerEnter={() => setHover(p.t.id)}
+                onPointerLeave={() => setHover(null)}
+                onFocus={() => setHover(p.t.id)}
+                onBlur={() => setHover(null)}
+                className={cn('flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-start transition-colors duration-fast', hover === p.t.id ? 'bg-brand-soft' : 'hover:bg-neutral-50')}
+              >
+                <span
+                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold tabular"
+                  style={p.t.effort == null ? { borderColor: st.color, color: 'var(--neutral-800)' } : { borderColor: st.color, background: st.color, color: '#fff' }}
+                >
+                  {toArabicDigits(n)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium leading-snug text-fg-primary">{p.t.title}</span>
+                  <span className="block text-2xs text-fg-tertiary">
+                    أهمية {toArabicDigits(p.t.priority ?? 0)} · استعجال {toArabicDigits(p.t.urgency ?? 0)} · إنجاز {toArabicDigits(p.t.progress)}٪{isOverdue(p.t) ? ' · متأخرة' : ''}
+                  </span>
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ol>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-fg-secondary">

@@ -248,11 +248,22 @@ migrate('real-items-2026-10-30', () => {
     audit({ entity: 'task', entityId: t.id, entityTitle: t.title, action: 'delete', field: '', old: t, new: null, by: 'النظام' })
   }
   const have = new Set(listTasks().map((t) => t.title))
-  for (const item of realItems()) {
+  const base = Date.now()
+  for (const [i, item] of realItems().entries()) {
     if (have.has(item.title)) continue
-    const t = insertTask(item, 'النظام')
+    const t = insertTask({ ...item, createdAt: base + i }, 'النظام')
     audit({ entity: 'task', entityId: t.id, entityTitle: t.title, action: 'create', field: '', old: null, new: t, by: 'النظام' })
   }
+})
+
+// items are numbered in the order they were added; the real list went in within one
+// millisecond, so put it back in the VP's order (1–12, then the others)
+migrate('number-real-items', () => {
+  const titles = realItems().map((t) => t.title)
+  const rows = listTasks().filter((t) => titles.includes(t.title))
+  if (!rows.length) return
+  const base = Math.min(...rows.map((t) => t.createdAt))
+  for (const t of rows) db.prepare('UPDATE tasks SET created_at = ? WHERE id = ?').run(base + titles.indexOf(t.title), t.id)
 })
 
 export const DB_FILE = FILE

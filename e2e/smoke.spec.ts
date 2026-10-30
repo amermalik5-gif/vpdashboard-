@@ -190,3 +190,12 @@ test('the VP edits importance, urgency, date and notes straight from the table',
   // undated items are listed under the timeline instead of being guessed
   await expect(page.locator('#timeline')).toContainText('بلا تاريخ')
 })
+
+test('matrix bubbles are numbered like the table, with a numbered key beside them', async ({ page }) => {
+  await page.goto('/')
+  const key = page.getByRole('list', { name: 'أرقام البنود في المصفوفة' })
+  // the VP's own list keeps its numbering: item 9 is the CEO's visit
+  await expect(key.getByRole('button', { name: /^٩ زيارة الرئيس لجامعة الأميرة نورة/ })).toBeVisible()
+  await expect(page.locator('table tr', { hasText: 'زيارة الرئيس لجامعة الأميرة نورة' }).locator('td').first()).toHaveText('٩')
+  await expect(page.locator('#matrix svg g[role="button"]', { hasText: '٩' }).first()).toBeVisible()
+})
