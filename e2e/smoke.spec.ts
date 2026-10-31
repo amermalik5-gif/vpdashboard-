@@ -44,11 +44,18 @@ test('anyone can add and edit an item; the change log names them', async ({ page
   await expect(page.locator('#activity')).toContainText('سارة غيّر المسؤول في البند «مهمة اختبار»')
 })
 
-test('delete and settings need the admin', async ({ page, request }) => {
-  const state = await (await request.get('/api/state')).json()
-  const id = state.tasks[0].id
+test('anyone can delete an item; settings need the admin', async ({ page, request }) => {
   const headers = { 'x-editor': 'test' }
-  expect((await request.delete(`/api/tasks/${id}`, { headers })).status()).toBe(401)
+  // a visitor deletes an item from the form, after confirming
+  const added = await (await request.post('/api/tasks', { headers, data: { title: 'بند للحذف' } })).json()
+  await page.goto('/')
+  await page.locator('table').getByRole('button', { name: 'بند للحذف' }).click()
+  await page.getByRole('button', { name: 'حذف', exact: true }).click()
+  await page.getByRole('button', { name: 'نعم، احذف' }).click()
+  await page.getByLabel('الاسم').fill('زائر')
+  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
+  await expect(page.locator('table').getByText('بند للحذف')).toHaveCount(0)
+  expect((await (await request.get('/api/state')).json()).tasks.some((t: { id: string }) => t.id === added.id)).toBe(false)
   expect((await request.put('/api/settings', { headers, data: { weeklyCapacity: 30 } })).status()).toBe(401)
   expect((await request.post('/api/login', { data: { password: 'wrong' } })).status()).toBe(401)
 

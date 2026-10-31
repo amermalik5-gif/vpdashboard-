@@ -265,7 +265,7 @@ api.post(
   }),
 )
 
-/* ---------- tasks: everyone adds and edits, admin deletes ---------- */
+/* ---------- tasks: everyone adds, edits and deletes; the admin can restore a deleted item from the change log ---------- */
 api.post(
   '/tasks',
   writes,
@@ -325,7 +325,7 @@ api.patch(
 
 api.delete(
   '/tasks/:id',
-  requireAdmin,
+  writes,
   handle((req, res) => {
     const by = editor(req)
     const before = store.getTask(req.params.id)

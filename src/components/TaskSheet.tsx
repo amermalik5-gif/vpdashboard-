@@ -260,11 +260,11 @@ export function TaskSheet() {
           <Button variant="ghost" size="lg" onClick={closeTask}>
             إلغاء
           </Button>
-          {task && isAdmin && (
+          {task && (
             <div className="ms-auto flex items-center gap-2">
               {confirmDelete ? (
                 <>
-                  <span className="text-sm text-danger-700">حذف نهائي؟ يمكن استرجاعه من سجل التعديلات.</span>
+                  <span className="text-sm text-danger-700">حذف نهائي؟ يستطيع المشرف استرجاعه من سجل التعديلات.</span>
                   <Button variant="outline" className="border-danger-500 text-danger-700 hover:bg-danger-50" onClick={remove}>
                     نعم، احذف
                   </Button>
