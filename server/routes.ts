@@ -229,7 +229,7 @@ api.post(
       const t = pick(raw, TASK_FIELDS, cleanTaskField) as Task
       if (!t.title) throw new Invalid('مهمة بلا عنوان في الملف.')
       const r = raw as Record<string, unknown>
-      return { ...t, id: id(r.id), createdAt: num(r.createdAt), progress: t.progress ?? 0, draft: !!t.draft }
+      return { ...t, id: id(r.id), createdAt: num(r.createdAt), position: typeof r.position === 'number' && Number.isFinite(r.position) ? Math.round(r.position) : undefined, progress: t.progress ?? 0, draft: !!t.draft }
     })
     const events = b.events.map((raw) => {
       const e = pick(raw, EVENT_FIELDS, cleanEventField) as EventItem
@@ -250,7 +250,7 @@ api.post(
       store.db.prepare('DELETE FROM events').run()
       for (const t of tasks)
         store.insertTask(
-          { id: t.id, createdAt: t.createdAt, title: t.title, kind: t.kind ?? '', category: t.category ?? '', label: t.label ?? '', priority: t.priority ?? null, urgency: t.urgency ?? null, expectation: t.expectation ?? '', effort: t.effort ?? null, progress: t.progress, status: t.status ?? '', start: t.start ?? '', end: t.end ?? '', owner: t.owner ?? '', notes: t.notes ?? '', draft: t.draft },
+          { id: t.id, createdAt: t.createdAt, title: t.title, kind: t.kind ?? '', category: t.category ?? '', label: t.label ?? '', priority: t.priority ?? null, urgency: t.urgency ?? null, expectation: t.expectation ?? '', effort: t.effort ?? null, progress: t.progress, status: t.status ?? '', start: t.start ?? '', end: t.end ?? '', owner: t.owner ?? '', notes: t.notes ?? '', draft: t.draft, position: t.position },
           by,
         )
       // events from backups made before events and tasks were merged become items of type «فعالية»
@@ -320,6 +320,25 @@ api.patch(
       changed()
     }
     res.json(store.getTask(before.id))
+  }),
+)
+
+/* drag an item to another place in the list: everyone, like any other edit */
+api.post(
+  '/tasks/:id/move',
+  writes,
+  handle((req, res) => {
+    const by = editor(req)
+    const to = intIn(req.body?.to, 1, 100_000, 'الترتيب', false)!
+    const before = store.getTask(req.params.id)
+    if (!before) return res.status(404).json({ error: 'لم تعد هذه المهمة موجودة.' })
+    const moved = store.db.transaction(() => {
+      const r = store.moveTask(before.id, to, by)!
+      if (r[0] !== r[1]) store.audit({ entity: 'task', entityId: before.id, entityTitle: before.title, action: 'update', field: 'position', old: r[0], new: r[1], by })
+      return r
+    })()
+    if (moved[0] !== moved[1]) changed()
+    res.json({ from: moved[0], to: moved[1] })
   }),
 )
 
@@ -456,7 +475,9 @@ api.post(
           const table = entry.entity === 'task' ? 'tasks' : 'events'
           const exists = entry.entity === 'task' ? store.getTask(entry.entityId) : store.getEvent(entry.entityId)
           if (!exists) throw new Invalid('العنصر محذوف. استرجع الحذف أولًا.')
-          store.updateRow(table, entry.entityId, { [entry.field]: entry.old }, by)
+          // a place in the list: move it back, renumbering the others
+          if (entry.field === 'position') store.moveTask(entry.entityId, Number(entry.old), by)
+          else store.updateRow(table, entry.entityId, { [entry.field]: entry.old }, by)
         }
       } else throw new Invalid('لا يمكن استرجاع هذا النوع من التعديلات. احذف العنصر بدلًا من ذلك.')
       store.audit({ ...entry, action: 'restore', old: entry.new, new: entry.old, by })

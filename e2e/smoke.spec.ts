@@ -214,7 +214,7 @@ test('every item is in the matrix and on the timeline; awards sit at the preside
   await page.goto('/')
   // every item has a numbered bubble: the unscored ones wait in the tray under the plot
   await expect(page.locator('#matrix svg g[role="button"]')).toHaveCount(tasks.length)
-  await expect(page.locator('#matrix svg')).toContainText('لم تُقيَّم بعد')
+  await expect(page.getByRole('group', { name: 'مصفوفة المهام حسب درجة الأهمية ومستوى الاستعجال' })).toContainText('لم تُقيَّم بعد')
   await expect(page.getByRole('list', { name: 'أرقام البنود في المصفوفة' }).getByRole('listitem')).toHaveCount(tasks.length)
   // the legend has the colours only
   await expect(page.locator('#matrix')).not.toContainText('الجهد غير محدد')
@@ -241,4 +241,43 @@ test('the team sets the status, and the colour follows it', async ({ page, reque
     })
     .toBe('done|100')
   expect((await request.patch(`/api/tasks/${(await (await request.get('/api/state')).json()).tasks[0].id}`, { headers: { 'x-editor': 'x' }, data: { status: 'nope' } })).status()).toBe(400)
+})
+
+test('anyone can drag the list beside the matrix to change the order and the numbers', async ({ page, request }) => {
+  await page.goto('/')
+  const key = page.getByRole('list', { name: 'أرقام البنود في المصفوفة' })
+  const order = async () =>
+    (await (await request.get('/api/state')).json()).tasks.sort((a: { position: number }, b: { position: number }) => a.position - b.position).map((t: { title: string }) => t.title)
+  const before = await order()
+  // keyboard: the up arrow on item 3's grip makes it item 2
+  await key.getByRole('button', { name: `تغيير ترتيب «${before[2]}»` }).press('ArrowUp')
+  await page.getByLabel('الاسم').fill('مرتّب')
+  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
+  await expect.poll(order).toEqual([before[0], before[2], before[1], ...before.slice(3)])
+  // the table (in list order) and the bubbles follow
+  const row2 = page.locator('table tbody tr').nth(1)
+  await expect(row2.locator('td').first()).toHaveText('٢')
+  await expect(row2).toContainText(before[2])
+  await expect(key.getByRole('button', { name: new RegExp(`^٢ ${before[2]}`) })).toBeVisible()
+
+  // mouse: drag item 1 below item 4 (once the name dialog has gone)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const now = await order()
+  const grip = (await key.getByRole('button', { name: `تغيير ترتيب «${now[0]}»` }).boundingBox())!
+  const target = (await key.getByRole('listitem').nth(3).boundingBox())!
+  const x = grip.x + grip.width / 2
+  const y0 = grip.y + grip.height / 2
+  const y1 = target.y + target.height * 0.8
+  await page.mouse.move(x, y0)
+  await page.mouse.down()
+  // a hand-paced drag: the list reorders frame by frame
+  for (let i = 1; i <= 20; i++) {
+    await page.mouse.move(x, y0 + ((y1 - y0) * i) / 20)
+    await page.waitForTimeout(16)
+  }
+  await page.mouse.up()
+  await expect.poll(async () => (await order()).indexOf(now[0])).toBe(3)
+  // numbers stay 1…n with no gaps
+  const positions = (await (await request.get('/api/state')).json()).tasks.map((t: { position: number }) => t.position).sort((a: number, b: number) => a - b)
+  expect(positions).toEqual(positions.map((_: number, i: number) => i + 1))
 })

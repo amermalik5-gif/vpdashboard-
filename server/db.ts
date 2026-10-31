@@ -17,7 +17,7 @@ db.exec(`
     id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '',
     priority INTEGER, urgency INTEGER, expectation TEXT NOT NULL DEFAULT '', effort INTEGER, progress INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '',
     start TEXT NOT NULL DEFAULT '', "end" TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
-    draft INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL DEFAULT ''
+    draft INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL DEFAULT ''
   );
   CREATE TABLE IF NOT EXISTS events (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, date TEXT NOT NULL DEFAULT '', type TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
@@ -35,6 +35,7 @@ db.exec(`
 const cols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map((c) => c.name)
 if (!cols.includes('kind')) db.exec("ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT ''")
 if (!cols.includes('status')) db.exec("ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT ''")
+if (!cols.includes('position')) db.exec('ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0')
 
 type Row = Record<string, unknown>
 
@@ -55,6 +56,7 @@ const toTask = (r: Row): Task => ({
   owner: r.owner as string,
   notes: r.notes as string,
   draft: !!r.draft,
+  position: r.position as number,
   createdAt: r.created_at as number,
   updatedAt: r.updated_at as number,
   updatedBy: r.updated_by as string,
@@ -91,22 +93,25 @@ const COLS: Record<string, string> = { end: '"end"' }
 const col = (k: string) => COLS[k] ?? k
 const sqlValue = (v: unknown) => (typeof v === 'boolean' ? Number(v) : v)
 
-export const listTasks = (): Task[] => (db.prepare('SELECT * FROM tasks ORDER BY created_at').all() as Row[]).map(toTask)
+/** In list order: by position (the item's number), then by when it was added. */
+export const listTasks = (): Task[] => (db.prepare('SELECT * FROM tasks ORDER BY position, created_at, id').all() as Row[]).map(toTask)
 export const getTask = (id: string): Task | undefined => {
   const r = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as Row | undefined
   return r && toTask(r)
 }
 
 export function insertTask(
-  t: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'kind' | 'status'> & { kind?: Task['kind']; status?: Task['status']; id?: string; createdAt?: number },
+  t: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'kind' | 'status' | 'position'> & { kind?: Task['kind']; status?: Task['status']; position?: number; id?: string; createdAt?: number },
   by: string,
 ): Task {
   const now = Date.now()
   const id = t.id ?? randomUUID()
+  // a new item goes to the end of the list
+  const position = t.position ?? (db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM tasks').get() as { p: number }).p
   db.prepare(
-    `INSERT INTO tasks (id,title,kind,category,label,priority,urgency,expectation,effort,progress,status,start,"end",owner,notes,draft,created_at,updated_at,updated_by)
-     VALUES (@id,@title,@kind,@category,@label,@priority,@urgency,@expectation,@effort,@progress,@status,@start,@end,@owner,@notes,@draft,@created_at,@updated_at,@updated_by)`,
-  ).run({ ...t, kind: t.kind ?? '', status: t.status ?? '', id, draft: Number(t.draft), created_at: t.createdAt ?? now, updated_at: now, updated_by: by })
+    `INSERT INTO tasks (id,title,kind,category,label,priority,urgency,expectation,effort,progress,status,start,"end",owner,notes,draft,position,created_at,updated_at,updated_by)
+     VALUES (@id,@title,@kind,@category,@label,@priority,@urgency,@expectation,@effort,@progress,@status,@start,@end,@owner,@notes,@draft,@position,@created_at,@updated_at,@updated_by)`,
+  ).run({ ...t, kind: t.kind ?? '', status: t.status ?? '', position, id, draft: Number(t.draft), created_at: t.createdAt ?? now, updated_at: now, updated_by: by })
   return getTask(id)!
 }
 
@@ -120,6 +125,23 @@ export function updateRow(table: 'tasks' | 'events', id: string, patch: Record<s
 }
 
 export const deleteRow = (table: 'tasks' | 'events', id: string) => db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id)
+
+/**
+ * Move an item to number `to` (1-based) and renumber the whole list 1, 2, 3… so the
+ * numbers never repeat or skip. Returns the item's number before and after, or null if it is gone.
+ */
+export function moveTask(id: string, to: number, by: string): [number, number] | null {
+  const order = listTasks()
+  const from = order.findIndex((t) => t.id === id)
+  if (from < 0) return null
+  const [t] = order.splice(from, 1)
+  const at = Math.min(order.length, Math.max(0, Math.round(to) - 1))
+  order.splice(at, 0, t)
+  const set = db.prepare('UPDATE tasks SET position = ? WHERE id = ?')
+  order.forEach((x, i) => x.position !== i + 1 && set.run(i + 1, x.id))
+  if (from !== at) db.prepare('UPDATE tasks SET updated_at = ?, updated_by = ? WHERE id = ?').run(Date.now(), by, id)
+  return [from + 1, at + 1]
+}
 
 /* ---------- events ---------- */
 export const listEvents = (): EventItem[] => (db.prepare('SELECT * FROM events ORDER BY created_at').all() as Row[]).map(toEvent)
@@ -289,6 +311,13 @@ migrate('awards-oct31', () => {
     db.prepare("UPDATE tasks SET label = 'ceo' WHERE id = ?").run(t.id)
     audit({ entity: 'task', entityId: t.id, entityTitle: t.title, action: 'update', field: 'label', old: t.label, new: 'ceo', by: 'النظام' })
   }
+})
+
+// items get a place in the list that can be changed by dragging; start from the order they were added
+migrate('item-positions', () => {
+  const rows = db.prepare('SELECT id FROM tasks ORDER BY created_at, id').all() as { id: string }[]
+  const set = db.prepare('UPDATE tasks SET position = ? WHERE id = ?')
+  rows.forEach((r, i) => set.run(i + 1, r.id))
 })
 
 export const DB_FILE = FILE

@@ -48,6 +48,8 @@ export interface Task {
   notes: string
   /** Seeded row still waiting for the VP to confirm the values */
   draft: boolean
+  /** Place in the list (1, 2, 3…): the item's number, changed by dragging it in the list */
+  position: number
   createdAt: number
   updatedAt: number
   updatedBy: string
@@ -128,6 +130,7 @@ export const FIELD_NAMES: Record<string, string> = {
   owner: 'المسؤول',
   notes: 'الملاحظات',
   draft: 'التأكيد',
+  position: 'الترتيب',
   name: 'الاسم',
   date: 'التاريخ',
   type: 'النوع',

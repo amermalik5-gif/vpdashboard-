@@ -1,6 +1,6 @@
 import type { ItemKind, Task } from '../src/lib/types.ts'
 
-type NewTask = Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy'>
+type NewTask = Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'position'>
 
 const iso = (d: Date) => d.toISOString().slice(0, 10)
 
