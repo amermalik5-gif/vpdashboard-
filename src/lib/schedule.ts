@@ -63,11 +63,11 @@ export const isOverdue = (t: Task, now = today()) => isOpen(t) && hasDate(t) && 
 export const daysOverdue = (t: Task, now = today()) => Math.max(0, daysBetween(span(t)[1], now))
 
 /**
- * A stable number per item, in the order items were added: the VP's own list keeps its
- * numbering (1–12), later items follow. The matrix bubbles and the table share it.
+ * Each item's number: its place in the list, which anyone can change by dragging it
+ * (new items go to the end). The matrix bubbles, the list beside them and the table share it.
  */
 export function itemNumbers(tasks: Task[]): Map<string, number> {
-  const order = [...tasks].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+  const order = [...tasks].sort((a, b) => a.position - b.position || a.createdAt - b.createdAt || a.id.localeCompare(b.id))
   return new Map(order.map((t, i) => [t.id, i + 1]))
 }
 

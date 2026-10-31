@@ -11,8 +11,9 @@ import { fmtDay, toArabicDigits } from '@/lib/format'
 import { STATUS, daysOverdue, hasDate, isOverdue, itemNumbers, progressPatch, span, statusOf, statusPatch, type Status } from '@/lib/schedule'
 import { ITEM_KINDS, TASK_STATUSES, type ItemKind, type Task } from '@/lib/types'
 
-type Sort = 'rank' | 'late' | 'end' | 'progress' | 'recent'
+type Sort = 'order' | 'rank' | 'late' | 'end' | 'progress' | 'recent'
 const SORTS: { id: Sort; label: string }[] = [
+  { id: 'order', label: 'حسب الترتيب' },
   { id: 'rank', label: 'الأهم أولًا' },
   { id: 'late', label: 'المتأخرة أولًا' },
   { id: 'end', label: 'الأقرب موعدًا' },
@@ -25,6 +26,8 @@ const when = (t: Task) => (hasDate(t) ? span(t)[1].getTime() : Infinity)
 /** Late first (the longest overdue on top), then slightly late. */
 const lateness = (t: Task) => ({ late: 1000, 'at-risk': 1 }[statusOf(t) as string] ?? 0) + (isOverdue(t) ? daysOverdue(t) : 0)
 const SORT_FN: Record<Sort, (a: Task, b: Task) => number> = {
+  // the numbered order set by dragging the list beside the matrix
+  order: (a, b) => a.position - b.position || a.createdAt - b.createdAt || a.id.localeCompare(b.id),
   rank: (a, b) => rank(b) - rank(a),
   late: (a, b) => lateness(b) - lateness(a) || when(a) - when(b),
   end: (a, b) => when(a) - when(b),
@@ -118,7 +121,7 @@ const STATUS_OPTIONS = Object.entries(TASK_STATUSES) as [Status, string][]
 export function Register() {
   const { state, labels, labelName, openTask, run, patchLocal } = useBoardCtx()
   const [q, setQ] = useState('')
-  const [sort, setSort] = useState<Sort>('rank')
+  const [sort, setSort] = useState<Sort>('order')
   const tasks = useMemo(() => {
     const needle = q.trim()
     return [...(state?.tasks ?? [])]

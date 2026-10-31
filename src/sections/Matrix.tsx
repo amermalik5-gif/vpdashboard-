@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
+import { Reorder, useDragControls } from 'framer-motion'
+import { GripVertical } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { FilterChips } from '@/components/ui/FilterChips'
 import { api } from '@/lib/api'
@@ -74,7 +76,6 @@ export function Matrix() {
   )
   const trayH = tray.length ? TRAY.head + Math.ceil(tray.length / PER_ROW) * TRAY.row + 8 : 0
   const H = PLOT_H + (tray.length ? trayH + 16 : 0)
-  const listed = [...tasks].sort(byNumber)
 
   const toSvg = (e: RPointerEvent) => {
     const pt = svg.current!.createSVGPoint()
@@ -234,32 +235,7 @@ export function Matrix() {
         </svg>
       </div>
 
-      {/* the key: number → item, every item in the same order as the VP's list */}
-      <ol className="flex max-h-[680px] flex-col overflow-y-auto lg:border-s lg:border-line-subtle lg:ps-4" aria-label="أرقام البنود في المصفوفة">
-        {listed.map((t) => {
-          const st = STATUS[statusOf(t)]
-          const unscored = t.priority == null || t.urgency == null
-          return (
-            <li key={t.id}>
-              <button
-                type="button"
-                onClick={() => openTask(t.id)}
-                onPointerEnter={() => setHover(t.id)}
-                onPointerLeave={() => setHover(null)}
-                onFocus={() => setHover(t.id)}
-                onBlur={() => setHover(null)}
-                className={cn('flex w-full items-center gap-2.5 rounded-md px-2 py-1 text-start transition-colors duration-fast', hover === t.id ? 'bg-brand-soft' : 'hover:bg-neutral-50')}
-              >
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular text-white" style={{ background: st.color }}>
-                  {toArabicDigits(numbers.get(t.id)!)}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg-primary">{t.title}</span>
-                {unscored && <span className="shrink-0 text-2xs text-fg-tertiary">لم تُقيَّم</span>}
-              </button>
-            </li>
-          )
-        })}
-      </ol>
+      <KeyList tasks={tasks} numbers={numbers} hover={hover} setHover={setHover} />
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-fg-secondary">
@@ -271,5 +247,121 @@ export function Matrix() {
         ))}
       </div>
     </Card>
+  )
+}
+
+/**
+ * The key beside the matrix: every item by its number. Dragging the grip (or the arrow keys on
+ * it) moves the item; the numbers in the list, the bubbles and the table follow.
+ */
+function KeyList({ tasks, numbers, hover, setHover }: { tasks: Task[]; numbers: Map<string, number>; hover: string | null; setHover: (id: string | null) => void }) {
+  const { openTask, run, patchLocal } = useBoardCtx()
+  const saved = useMemo(() => [...tasks].sort((a, b) => numbers.get(a.id)! - numbers.get(b.id)!).map((t) => t.id), [tasks, numbers])
+  const [order, setOrder] = useState(saved)
+  const latest = useRef(order)
+  latest.current = order
+  // follow the board (other people's moves, new items), except while an item is being dragged
+  const dragging = useRef(false)
+  const savedKey = saved.join(',')
+  useEffect(() => {
+    if (!dragging.current) setOrder(saved)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey])
+  const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks])
+
+  // shown at once (every item renumbered), then saved: the server renumbers the same way
+  const commit = (id: string, ids: string[]) => {
+    const to = ids.indexOf(id) + 1
+    if (!to || to === numbers.get(id)) return
+    ids.forEach((x, i) => patchLocal(x, { position: i + 1 }))
+    void run(() => api.moveTask(id, to), `نُقل إلى الرقم ${toArabicDigits(to)}`)
+  }
+  const moveBy = (id: string, d: number) => {
+    const ids = [...latest.current]
+    const i = ids.indexOf(id)
+    if (i < 0 || i + d < 0 || i + d >= ids.length) return
+    ids.splice(i, 1)
+    ids.splice(i + d, 0, id)
+    setOrder(ids)
+    commit(id, ids)
+  }
+
+  return (
+    <div className="flex min-w-0 flex-col lg:border-s lg:border-line-subtle lg:ps-4">
+      <p className="mb-1 flex items-center gap-1 px-1 text-2xs text-fg-tertiary">
+        اسحب <GripVertical size={12} aria-hidden /> لتغيير ترتيب البنود وأرقامها
+      </p>
+      <Reorder.Group as="ol" axis="y" values={order} onReorder={setOrder} layoutScroll className="flex flex-col lg:max-h-[660px] lg:overflow-y-auto" aria-label="أرقام البنود في المصفوفة">
+        {order.map((id, i) => {
+          const t = byId.get(id)
+          if (!t) return null
+          return (
+            <KeyRow
+              key={id}
+              t={t}
+              n={i + 1}
+              active={hover === id}
+              onHover={(on) => setHover(on ? id : null)}
+              onOpen={() => openTask(id)}
+              onDragStart={() => (dragging.current = true)}
+              onDragEnd={() => {
+                dragging.current = false
+                commit(id, latest.current)
+              }}
+              onMoveBy={(d) => moveBy(id, d)}
+            />
+          )
+        })}
+      </Reorder.Group>
+    </div>
+  )
+}
+
+function KeyRow(p: { t: Task; n: number; active: boolean; onHover: (on: boolean) => void; onOpen: () => void; onDragStart: () => void; onDragEnd: () => void; onMoveBy: (d: number) => void }) {
+  const controls = useDragControls()
+  const st = STATUS[statusOf(p.t)]
+  const unscored = p.t.priority == null || p.t.urgency == null
+  return (
+    <Reorder.Item
+      as="li"
+      value={p.t.id}
+      dragListener={false}
+      dragControls={controls}
+      onDragStart={p.onDragStart}
+      onDragEnd={p.onDragEnd}
+      className="relative rounded-md bg-surface"
+      whileDrag={{ scale: 1.02, zIndex: 10, boxShadow: '0 6px 16px rgba(16, 24, 40, 0.14)' }}
+    >
+      <div
+        className={cn('flex items-center rounded-md transition-colors duration-fast', p.active ? 'bg-brand-soft' : 'hover:bg-neutral-50')}
+        onPointerEnter={() => p.onHover(true)}
+        onPointerLeave={() => p.onHover(false)}
+      >
+        <button
+          type="button"
+          aria-label={`تغيير ترتيب «${p.t.title}» (الرقم ${toArabicDigits(p.n)}): اسحب، أو استخدم السهمين للأعلى والأسفل`}
+          title="اسحب لتغيير الترتيب"
+          className="flex h-8 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded text-fg-muted hover:text-fg-secondary active:cursor-grabbing"
+          onPointerDown={(e) => {
+            e.preventDefault()
+            controls.start(e)
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+            e.preventDefault()
+            p.onMoveBy(e.key === 'ArrowUp' ? -1 : 1)
+          }}
+        >
+          <GripVertical size={16} aria-hidden />
+        </button>
+        <button type="button" onClick={p.onOpen} onFocus={() => p.onHover(true)} onBlur={() => p.onHover(false)} className="flex min-w-0 flex-1 items-center gap-2.5 py-1 pe-2 ps-1 text-start">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular text-white" style={{ background: st.color }}>
+            {toArabicDigits(p.n)}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg-primary">{p.t.title}</span>
+          {unscored && <span className="shrink-0 text-2xs text-fg-tertiary">لم تُقيَّم</span>}
+        </button>
+      </div>
+    </Reorder.Item>
   )
 }

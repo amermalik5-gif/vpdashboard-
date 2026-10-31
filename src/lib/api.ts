@@ -59,6 +59,8 @@ export const api = {
   audit: (limit = 50) => call<AuditEntry[]>('GET', `/audit?limit=${limit}`),
   addTask: (t: Partial<Task>) => call<Task>('POST', '/tasks', t),
   updateTask: (id: string, patch: Partial<Task>) => call<Task>('PATCH', `/tasks/${id}`, patch),
+  /** Put the item at number `to` in the list; the others are renumbered. */
+  moveTask: (id: string, to: number) => call<{ from: number; to: number }>('POST', `/tasks/${id}/move`, { to }),
   deleteTask: (id: string) => call<void>('DELETE', `/tasks/${id}`),
   addEvent: (e: Partial<EventItem>) => call<EventItem>('POST', '/events', e),
   updateEvent: (id: string, patch: Partial<EventItem>) => call<EventItem>('PATCH', `/events/${id}`, patch),
