@@ -3,7 +3,7 @@ import pattern from '@/assets/brand/bg-pattern.webp'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDate, toArabicDigits } from '@/lib/format'
-import { addDays, hasDate, isOpen, isOverdue, parseDate, span, today } from '@/lib/schedule'
+import { addDays, hasDate, isOpen, span, statusOf, today } from '@/lib/schedule'
 
 /**
  * Slim summary bar under the header: title, as-of date, the five numbers the VP checks
@@ -15,12 +15,11 @@ export function Hero() {
   const open = tasks.filter(isOpen)
   const now = today()
   const soon = addDays(now, 14)
-  const started = (t: (typeof tasks)[number]) => (parseDate(t.start) ?? now) <= now
   const stats = [
     { n: open.length, name: 'مفتوحة' },
-    { n: open.filter((t) => isOverdue(t, now)).length, name: 'متأخرة', alarm: true },
+    { n: open.filter((t) => statusOf(t) === 'late').length, name: 'متأخرة', alarm: true },
+    { n: open.filter((t) => statusOf(t) === 'at-risk').length, name: 'متأخرة قليلًا', hot: true },
     { n: open.filter((t) => (t.priority ?? 0) >= 6 && (t.urgency ?? 0) >= 6).length, name: 'مهمة وطارئة', hot: true },
-    { n: open.filter((t) => started(t) && t.progress < 20).length, name: 'بدأت وإنجازها أقل من ٢٠٪', hot: true },
     {
       n: open.filter((t) => {
         if (!hasDate(t)) return false

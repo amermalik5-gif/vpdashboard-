@@ -6,24 +6,24 @@ import { Sheet } from '@/components/ui/Sheet'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { fmtDay, fmtTime, toArabicDigits } from '@/lib/format'
-import { addDays, isoDate, parseDate, STATUS, statusOf, today } from '@/lib/schedule'
-import { EXPECTATIONS, ITEM_KINDS, type Expectation, type ItemKind, type Task } from '@/lib/types'
+import { addDays, isoDate, parseDate, progressPatch, STATUS, statusOf, statusPatch, today, type Status } from '@/lib/schedule'
+import { EXPECTATIONS, ITEM_KINDS, TASK_STATUSES, type Expectation, type ItemKind, type Task } from '@/lib/types'
 
 /** Fields the VP sets (the shaded group); changing one confirms a seeded draft. */
-const VP_FIELDS = ['priority', 'urgency', 'expectation', 'category', 'label', 'kind', 'end'] as const
+const VP_FIELDS = ['priority', 'urgency', 'expectation', 'label', 'kind', 'end'] as const
 
-type Form = Pick<Task, 'title' | 'kind' | 'category' | 'label' | 'priority' | 'urgency' | 'expectation' | 'effort' | 'progress' | 'start' | 'end' | 'owner' | 'notes'>
+type Form = Pick<Task, 'title' | 'kind' | 'label' | 'priority' | 'urgency' | 'expectation' | 'effort' | 'progress' | 'status' | 'start' | 'end' | 'owner' | 'notes'>
 
 const blank = (): Form => ({
   title: '',
   kind: '',
-  category: '',
   label: '',
   priority: null,
   urgency: null,
   expectation: '',
   effort: null,
   progress: 0,
+  status: '',
   start: isoDate(today()),
   end: '',
   owner: '',
@@ -71,12 +71,13 @@ export function TaskSheet() {
   useEffect(() => {
     if (!editing.open) return
     setConfirmDelete(false)
-    setF(task ? { ...task } : blank())
+    if (!task) return setF(blank())
+    const { title, kind, label, priority, urgency, expectation, effort, progress, status, start, end, owner, notes } = task
+    setF({ title, kind, label, priority, urgency, expectation, effort, progress, status, start, end, owner, notes })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing.open, editing.id])
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }))
-  const categories = state?.settings.categories ?? []
 
   // a seeded draft is confirmed when the VP's own values change, or when the admin confirms as is
   const save = async (confirm: boolean) => {
@@ -106,7 +107,8 @@ export function TaskSheet() {
   // end date preview when only the expected time is set
   const startD = parseDate(f.start) ?? today()
   const derivedEnd = f.end || !f.expectation ? null : addDays(startD, EXPECTATIONS[f.expectation].days)
-  const st = STATUS[statusOf({ ...(task ?? ({} as Task)), progress: f.progress })]
+  const current = { ...(task ?? ({} as Task)), ...f }
+  const st = STATUS[statusOf(current)]
 
   return (
     <Sheet
@@ -152,21 +154,6 @@ export function TaskSheet() {
                   {name}
                 </option>
               ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="t-cat" className="field-label">
-              الفئة
-            </label>
-            <select id="t-cat" className="field" value={f.category} onChange={(e) => set('category', e.target.value)}>
-              <option value="">اختر الفئة</option>
-              {categories.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-              {/* a value the admin has since removed from the list stays visible instead of silently disappearing */}
-              {f.category && !categories.includes(f.category) && <option value={f.category}>{f.category} (خارج القائمة)</option>}
             </select>
           </div>
           <div>
@@ -222,9 +209,25 @@ export function TaskSheet() {
           </div>
         </Group>
 
-        <Group tone="team" title="يحدّثها الفريق" note="الجهد يحدد حجم الفقاعة، ونسبة الإنجاز تحدد اللون.">
+        <Group tone="team" title="يحدّثها الفريق" note="الجهد يحدد حجم الفقاعة، والحالة تحدد اللون في المصفوفة والخط الزمني.">
           <Scale id="t-e" label="الجهد" hint="١٠ = مثل اليوم الرقمي" value={f.effort} min={1} max={10} onChange={(v) => set('effort', v)} />
-          <Scale id="t-pr" label="نسبة الإنجاز" value={f.progress} min={0} max={100} step={5} suffix="٪" onChange={(v) => set('progress', v ?? 0)} />
+          <Scale id="t-pr" label="نسبة الإنجاز" value={f.progress} min={0} max={100} step={5} suffix="٪" onChange={(v) => setF((x) => ({ ...x, ...progressPatch(x as Task, v ?? 0) }))} />
+          <div>
+            <label htmlFor="t-status" className="field-label">
+              الحالة
+            </label>
+            <div className="relative">
+              <span aria-hidden className="pointer-events-none absolute start-3 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full" style={{ background: st.color }} />
+              <select id="t-status" className="field ps-8" value={statusOf(current)} onChange={(e) => setF((x) => ({ ...x, ...statusPatch(e.target.value as Status) }))}>
+                {(Object.entries(TASK_STATUSES) as [Status, string][]).map(([k, name]) => (
+                  <option key={k} value={k}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="field-hint">المكتملة خضراء دائمًا، وما فات تاريخه يصبح «متأخرة».</p>
+          </div>
           <div>
             <label htmlFor="t-start" className="field-label">
               تاريخ البدء

@@ -2,10 +2,27 @@
 
 export type Expectation = '1w' | '2w' | '1m' | '2m' | 'q' | '6m'
 
-export type ItemKind = '' | 'event' | 'launch' | 'other'
+export type ItemKind = '' | 'event' | 'launch' | 'news' | 'announce-internal' | 'announce-site' | 'other'
 
-/** The item's type: an event, a launch, or something else (videos, designs…). */
-export const ITEM_KINDS: Record<Exclude<ItemKind, ''>, string> = { event: 'فعالية', launch: 'إطلاق', other: 'أخرى' }
+/** The item's one classification (the VP's list, 31 Oct 2026); «أخرى» for videos, designs… */
+export const ITEM_KINDS: Record<Exclude<ItemKind, ''>, string> = {
+  event: 'فعالية',
+  launch: 'إطلاق',
+  news: 'خبر',
+  'announce-internal': 'إعلان داخلي',
+  'announce-site': 'إعلان على الموقع',
+  other: 'أخرى',
+}
+
+/** Where the item stands, set by the team ('' = worked out from the progress). */
+export type TaskStatus = '' | 'not-started' | 'on-track' | 'at-risk' | 'late' | 'done'
+export const TASK_STATUSES: Record<Exclude<TaskStatus, ''>, string> = {
+  'not-started': 'لم تبدأ',
+  'on-track': 'على المسار',
+  'at-risk': 'متأخرة قليلًا',
+  late: 'متأخرة',
+  done: 'مكتملة',
+}
 
 export interface Task {
   id: string
@@ -23,6 +40,8 @@ export interface Task {
   effort: number | null
   /** 0–100 */
   progress: number
+  /** set by the team; decides the colour */
+  status: TaskStatus
   start: string
   end: string
   owner: string
@@ -90,7 +109,7 @@ export const EXPECTATIONS: Record<Expectation, { name: string; days: number; urg
 }
 
 /** Editable task fields and how the server validates them. */
-export const TASK_FIELDS = ['title', 'kind', 'category', 'label', 'priority', 'urgency', 'expectation', 'effort', 'progress', 'start', 'end', 'owner', 'notes', 'draft'] as const
+export const TASK_FIELDS = ['title', 'kind', 'category', 'label', 'priority', 'urgency', 'expectation', 'effort', 'progress', 'status', 'start', 'end', 'owner', 'notes', 'draft'] as const
 export const EVENT_FIELDS = ['name', 'date', 'type', 'notes', 'draft'] as const
 
 export const FIELD_NAMES: Record<string, string> = {
@@ -103,6 +122,7 @@ export const FIELD_NAMES: Record<string, string> = {
   expectation: 'المدة المتوقعة',
   effort: 'الجهد',
   progress: 'نسبة الإنجاز',
+  status: 'الحالة',
   start: 'تاريخ البدء',
   end: 'التاريخ',
   owner: 'المسؤول',

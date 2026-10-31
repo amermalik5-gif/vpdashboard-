@@ -5,12 +5,16 @@ import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { toArabicDigits } from '@/lib/format'
-import { STATUS, itemNumbers, spreadBubbles, statusOf, isOverdue } from '@/lib/schedule'
+import { STATUS, itemNumbers, spreadBubbles, statusOf } from '@/lib/schedule'
+import type { Task } from '@/lib/types'
 
 /* plot geometry (SVG units). RTL: urgency grows toward the LEFT, priority toward the top. */
 const W = 720
-const H = 560
-const BOX = { x0: 20, x1: W - 52, y0: 40, y1: H - 64 }
+const PLOT_H = 560
+const BOX = { x0: 20, x1: W - 52, y0: 40, y1: PLOT_H - 64 }
+/* the tray under the plot: items without importance or urgency yet, waiting to be dragged in */
+const TRAY = { y: PLOT_H + 8, head: 30, row: 46, pad: 12, step: 44 }
+const PER_ROW = Math.floor((BOX.x1 - BOX.x0 - 2 * TRAY.pad) / TRAY.step)
 const sx = (u: number) => BOX.x1 - (Math.min(10, Math.max(0, u)) / 10) * (BOX.x1 - BOX.x0)
 const sy = (p: number) => BOX.y1 - (Math.min(10, Math.max(0, p)) / 10) * (BOX.y1 - BOX.y0)
 // big enough at effort 1 to hold a two-digit number
@@ -52,41 +56,98 @@ export function Matrix() {
     return spreadBubbles(items, BOX)
   }, [tasks])
   const numbers = useMemo(() => itemNumbers(tasks), [tasks])
-  const listed = [...placed].sort((a, b) => numbers.get(a.t.id)! - numbers.get(b.t.id)!)
-
-  const unplaced = tasks.filter((t) => t.priority == null || t.urgency == null)
+  const byNumber = (a: Task, b: Task) => numbers.get(a.id)! - numbers.get(b.id)!
+  // the VP said no item may be missing: unscored ones wait in the tray, in list order
+  const tray = useMemo(
+    () =>
+      tasks
+        .filter((t) => t.priority == null || t.urgency == null)
+        .sort(byNumber)
+        .map((t, i) => ({
+          t,
+          x: BOX.x1 - TRAY.pad - TRAY.step / 2 - (i % PER_ROW) * TRAY.step,
+          y: TRAY.y + TRAY.head + TRAY.row / 2 + Math.floor(i / PER_ROW) * TRAY.row,
+          r: Math.min(rad(t.effort), 19),
+        })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tasks, numbers],
+  )
+  const trayH = tray.length ? TRAY.head + Math.ceil(tray.length / PER_ROW) * TRAY.row + 8 : 0
+  const H = PLOT_H + (tray.length ? trayH + 16 : 0)
+  const listed = [...tasks].sort(byNumber)
 
   const toSvg = (e: RPointerEvent) => {
     const pt = svg.current!.createSVGPoint()
     pt.x = e.clientX
     pt.y = e.clientY
     const l = pt.matrixTransform(svg.current!.getScreenCTM()!.inverse())
-    return { x: Math.min(BOX.x1, Math.max(BOX.x0, l.x)), y: Math.min(BOX.y1, Math.max(BOX.y0, l.y)) }
+    return { x: Math.min(W, Math.max(0, l.x)), y: Math.min(H, Math.max(0, l.y)) }
   }
+  const inBox = (p: { x: number; y: number }) => p.x >= BOX.x0 && p.x <= BOX.x1 && p.y >= BOX.y0 && p.y <= BOX.y1
+  const clamp = (p: { x: number; y: number }) => ({ x: Math.min(BOX.x1, Math.max(BOX.x0, p.x)), y: Math.min(BOX.y1, Math.max(BOX.y0, p.y)) })
 
-  const onDown = (e: RPointerEvent, id: string) => {
+  const onDown = (e: RPointerEvent) => {
     start.current = { x: e.clientX, y: e.clientY, moved: false }
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
     setDrag(null)
-    void id
   }
-  const onMove = (e: RPointerEvent, id: string) => {
+  const onMove = (e: RPointerEvent, id: string, scored: boolean) => {
     const s = start.current
     if (!s) return
     if (!s.moved && Math.hypot(e.clientX - s.x, e.clientY - s.y) < 5) return
     s.moved = true
-    setDrag({ id, ...toSvg(e) })
+    const p = toSvg(e)
+    setDrag({ id, ...(scored ? clamp(p) : p) })
   }
-  const onUp = (e: RPointerEvent, id: string) => {
+  const onUp = (e: RPointerEvent, id: string, scored: boolean) => {
     const s = start.current
     start.current = null
     if (!s?.moved) return openTask(id)
-    const p = toSvg(e)
+    setDrag(null)
+    const raw = toSvg(e)
+    // an item from the tray only gets values when it is dropped on the plot
+    if (!scored && !inBox(raw)) return
+    const p = clamp(raw)
     const urgency = Math.round(((BOX.x1 - p.x) / (BOX.x1 - BOX.x0)) * 10)
     const priority = Math.round(((BOX.y1 - p.y) / (BOX.y1 - BOX.y0)) * 10)
-    setDrag(null)
     patchLocal(id, { priority, urgency })
     run(() => api.updateTask(id, { priority, urgency }), `نُقلت إلى أهمية ${toArabicDigits(priority)} واستعجال ${toArabicDigits(urgency)}`)
+  }
+
+  /** One numbered bubble: colour = status, size = effort. */
+  const bubble = (b: { t: Task; x: number; y: number; r: number }, scored: boolean) => {
+    const t = b.t
+    const st = STATUS[statusOf(t)]
+    const dim = filter.length > 0 && !filter.includes(t.label)
+    const d = drag?.id === t.id ? drag : null
+    const x = d ? d.x : b.x
+    const y = d ? d.y : b.y
+    const n = toArabicDigits(numbers.get(t.id)!)
+    return (
+      <g
+        key={t.id}
+        className={cn('cursor-grab transition-opacity duration-base focus:outline-none', d && 'cursor-grabbing')}
+        opacity={dim ? 0.25 : 1}
+        tabIndex={0}
+        role="button"
+        aria-label={scored ? `${t.title}: أهمية ${t.priority}، استعجال ${t.urgency}، ${st.name}` : `${t.title}: لم تُقيَّم بعد، ${st.name}`}
+        onPointerEnter={() => setHover(t.id)}
+        onPointerLeave={() => setHover(null)}
+        onFocus={() => setHover(t.id)}
+        onBlur={() => setHover(null)}
+        onPointerDown={onDown}
+        onPointerMove={(e) => onMove(e, t.id, scored)}
+        onPointerUp={(e) => onUp(e, t.id, scored)}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(t.id))}
+      >
+        <title>{`${n}. ${t.title} · ${st.name}\n${scored ? `الأهمية ${toArabicDigits(t.priority ?? 0)} · الاستعجال ${toArabicDigits(t.urgency ?? 0)}` : 'لم تُقيَّم بعد: اسحبها إلى المصفوفة'}`}</title>
+        <circle cx={x} cy={y} r={b.r} fill={st.color} stroke="#fff" strokeWidth={2} />
+        {hover === t.id && <circle cx={x} cy={y} r={b.r + 5} fill="none" stroke="var(--nwc-blue-500)" strokeWidth={2.5} />}
+        <text x={x} y={y + 4.5 * Math.min(k, 1.4)} textAnchor="middle" fontSize={13 * Math.min(k, 1.4)} fontWeight={700} fill="#fff" pointerEvents="none">
+          {n}
+        </text>
+      </g>
+    )
   }
 
   const counts = (id: string) => tasks.filter((t) => t.label === id).length
@@ -96,7 +157,7 @@ export function Matrix() {
       <div className="mb-4 flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="text-xl font-medium">الأهمية والاستعجال</h3>
-          <p className="text-sm text-fg-tertiary">الرقم = رقم البند في الجدول · حجم الفقاعة = الجهد · لونها = نسبة الإنجاز · اسحبها لتغيير ترتيبها</p>
+          <p className="text-sm text-fg-tertiary">الرقم = رقم البند في الجدول · الحجم = الجهد · اللون = الحالة · اسحب الفقاعة لتغيير موقعها</p>
         </div>
         <FilterChips
           label="تصفية حسب المستوى"
@@ -129,7 +190,7 @@ export function Matrix() {
             </g>
           ))}
           <rect x={BOX.x0} y={BOX.y0} width={BOX.x1 - BOX.x0} height={BOX.y1 - BOX.y0} fill="none" stroke="var(--neutral-200)" />
-          <text x={(BOX.x0 + BOX.x1) / 2} y={H - 18} textAnchor="middle" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)">
+          <text x={(BOX.x0 + BOX.x1) / 2} y={PLOT_H - 18} textAnchor="middle" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)">
             ← مستوى الاستعجال (٠ غير طارئة · ١٠ طارئة جدًا)
           </text>
           <text x={W - 10} y={(BOX.y0 + BOX.y1) / 2} textAnchor="middle" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)" transform={`rotate(90 ${W - 10} ${(BOX.y0 + BOX.y1) / 2})`}>
@@ -137,53 +198,7 @@ export function Matrix() {
           </text>
 
           {/* bubbles, each with its item number */}
-          {placed.map((p) => {
-            const st = STATUS[statusOf(p.t)]
-            const dim = filter.length > 0 && !filter.includes(p.t.label)
-            const d = drag?.id === p.t.id ? drag : null
-            const x = d ? d.x : p.x
-            const y = d ? d.y : p.y
-            return (
-              <g
-                key={p.t.id}
-                className={cn('cursor-grab transition-opacity duration-base focus:outline-none', d && 'cursor-grabbing')}
-                opacity={dim ? 0.25 : 1}
-                tabIndex={0}
-                role="button"
-                aria-label={`${p.t.title}: أهمية ${p.t.priority}، استعجال ${p.t.urgency}، جهد ${p.t.effort ?? 'غير محدد'}، إنجاز ${p.t.progress}٪${isOverdue(p.t) ? '، متأخرة' : ''}`}
-                onPointerEnter={() => setHover(p.t.id)}
-                onPointerLeave={() => setHover(null)}
-                onFocus={() => setHover(p.t.id)}
-                onBlur={() => setHover(null)}
-                onPointerDown={(e) => onDown(e, p.t.id)}
-                onPointerMove={(e) => onMove(e, p.t.id)}
-                onPointerUp={(e) => onUp(e, p.t.id)}
-                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(p.t.id))}
-              >
-                <title>{`${toArabicDigits(numbers.get(p.t.id)!)}. ${p.t.title}${isOverdue(p.t) ? ' · متأخرة' : ''}\nالأهمية ${toArabicDigits(p.t.priority ?? 0)} · الاستعجال ${toArabicDigits(p.t.urgency ?? 0)} · الجهد ${toArabicDigits(p.t.effort ?? 0)} · الإنجاز ${toArabicDigits(p.t.progress)}٪`}</title>
-                {p.t.effort == null ? (
-                  // no effort entered yet: a hollow outline, so it can't pass for effort 1
-                  <circle cx={x} cy={y} r={p.r} fill="var(--surface, #fff)" stroke={st.color} strokeWidth={2.5} />
-                ) : (
-                  <circle cx={x} cy={y} r={p.r} fill={st.color} fillOpacity={0.85} stroke="#fff" strokeWidth={2} />
-                )}
-                {isOverdue(p.t) && <circle cx={x} cy={y} r={p.r + 2} fill="none" stroke="var(--danger-700)" strokeWidth={4} />}
-                {p.t.draft && <circle cx={x} cy={y} r={p.r + 4} fill="none" stroke={st.color} strokeDasharray="3 3" strokeWidth={1.5} />}
-                {hover === p.t.id && <circle cx={x} cy={y} r={p.r + 6} fill="none" stroke="var(--nwc-blue-500)" strokeWidth={2.5} />}
-                <text
-                  x={x}
-                  y={y + 4.5 * Math.min(k, 1.4)}
-                  textAnchor="middle"
-                  fontSize={13 * Math.min(k, 1.4)}
-                  fontWeight={700}
-                  fill={p.t.effort == null ? 'var(--neutral-800)' : '#fff'}
-                  pointerEvents="none"
-                >
-                  {toArabicDigits(numbers.get(p.t.id)!)}
-                </text>
-              </g>
-            )
-          })}
+          {placed.map((p) => bubble(p, true))}
 
           {/* quadrant names on top, so bubbles never hide them */}
           {QUADRANTS.map((q) => (
@@ -204,37 +219,42 @@ export function Matrix() {
               </text>
             </g>
           ))}
+
+          {tray.length > 0 && (
+            <g>
+              <rect x={BOX.x0} y={TRAY.y} width={BOX.x1 - BOX.x0} height={trayH} rx={10} fill="var(--neutral-25, #fafbfc)" stroke="var(--neutral-200)" strokeDasharray="4 4" />
+              <text x={BOX.x1 - TRAY.pad} y={TRAY.y + 20} textAnchor="start" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)">
+                لم تُقيَّم بعد ({toArabicDigits(tray.length)}){k > 1.3 ? ' — اسحبها إلى المصفوفة' : ' — اسحب أيًّا منها إلى المصفوفة لتحديد أهميتها واستعجالها'}
+              </text>
+              {tray.filter((b) => drag?.id !== b.t.id).map((b) => bubble(b, false))}
+            </g>
+          )}
+          {/* the bubble being dragged out of the tray, above everything */}
+          {tray.filter((b) => drag?.id === b.t.id).map((b) => bubble(b, false))}
         </svg>
       </div>
 
-      {/* the key: number → item, in the same order as the VP's list */}
-      <ol className="flex max-h-[560px] flex-col gap-0.5 overflow-y-auto lg:border-s lg:border-line-subtle lg:ps-4" aria-label="أرقام البنود في المصفوفة">
-        {listed.map((p) => {
-          const st = STATUS[statusOf(p.t)]
-          const n = numbers.get(p.t.id)!
+      {/* the key: number → item, every item in the same order as the VP's list */}
+      <ol className="flex max-h-[680px] flex-col overflow-y-auto lg:border-s lg:border-line-subtle lg:ps-4" aria-label="أرقام البنود في المصفوفة">
+        {listed.map((t) => {
+          const st = STATUS[statusOf(t)]
+          const unscored = t.priority == null || t.urgency == null
           return (
-            <li key={p.t.id}>
+            <li key={t.id}>
               <button
                 type="button"
-                onClick={() => openTask(p.t.id)}
-                onPointerEnter={() => setHover(p.t.id)}
+                onClick={() => openTask(t.id)}
+                onPointerEnter={() => setHover(t.id)}
                 onPointerLeave={() => setHover(null)}
-                onFocus={() => setHover(p.t.id)}
+                onFocus={() => setHover(t.id)}
                 onBlur={() => setHover(null)}
-                className={cn('flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-start transition-colors duration-fast', hover === p.t.id ? 'bg-brand-soft' : 'hover:bg-neutral-50')}
+                className={cn('flex w-full items-center gap-2.5 rounded-md px-2 py-1 text-start transition-colors duration-fast', hover === t.id ? 'bg-brand-soft' : 'hover:bg-neutral-50')}
               >
-                <span
-                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold tabular"
-                  style={p.t.effort == null ? { borderColor: st.color, color: 'var(--neutral-800)' } : { borderColor: st.color, background: st.color, color: '#fff' }}
-                >
-                  {toArabicDigits(n)}
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular text-white" style={{ background: st.color }}>
+                  {toArabicDigits(numbers.get(t.id)!)}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium leading-snug text-fg-primary">{p.t.title}</span>
-                  <span className="block text-2xs text-fg-tertiary">
-                    أهمية {toArabicDigits(p.t.priority ?? 0)} · استعجال {toArabicDigits(p.t.urgency ?? 0)} · إنجاز {toArabicDigits(p.t.progress)}٪{isOverdue(p.t) ? ' · متأخرة' : ''}
-                  </span>
-                </span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg-primary">{t.title}</span>
+                {unscored && <span className="shrink-0 text-2xs text-fg-tertiary">لم تُقيَّم</span>}
               </button>
             </li>
           )
@@ -249,28 +269,7 @@ export function Matrix() {
             {STATUS[k].name}
           </span>
         ))}
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-3 w-3 rounded-full border-2 border-fg-tertiary bg-surface" />
-          الجهد غير محدد
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-3 w-3 rounded-full border border-dashed border-fg-tertiary" />
-          بانتظار الموافقة
-        </span>
       </div>
-      {unplaced.length > 0 && (
-        <p className="mt-3 text-sm text-fg-tertiary">
-          لا تظهر في المصفوفة لأنها بلا درجة أهمية أو مستوى استعجال:{' '}
-          {unplaced.map((t, i) => (
-            <span key={t.id}>
-              {i > 0 && '، '}
-              <button type="button" className="text-brand underline-offset-2 hover:underline" onClick={() => openTask(t.id)}>
-                {t.title}
-              </button>
-            </span>
-          ))}
-        </p>
-      )}
     </Card>
   )
 }

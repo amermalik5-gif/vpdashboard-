@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { AuditEntry, EventItem, Settings, Task } from '../src/lib/types.ts'
-import { realItems, SAMPLE_TITLES, seed } from './seed.ts'
+import { AWARD_TITLES, AWARDS_OCT31, realItems, SAMPLE_TITLES, seed } from './seed.ts'
 
 const FILE = process.env.DATABASE_PATH ?? (process.env.NODE_ENV === 'production' ? '/data/vp.db' : './data/vp.db')
 mkdirSync(dirname(FILE), { recursive: true })
@@ -15,7 +15,7 @@ db.pragma('foreign_keys = ON')
 db.exec(`
   CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '',
-    priority INTEGER, urgency INTEGER, expectation TEXT NOT NULL DEFAULT '', effort INTEGER, progress INTEGER NOT NULL DEFAULT 0,
+    priority INTEGER, urgency INTEGER, expectation TEXT NOT NULL DEFAULT '', effort INTEGER, progress INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '',
     start TEXT NOT NULL DEFAULT '', "end" TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
     draft INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL DEFAULT ''
   );
@@ -31,9 +31,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS audit_at ON audit(at DESC);
 `)
 
-// databases from before items had a type: add the column in place
-if (!(db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).some((c) => c.name === 'kind'))
-  db.exec("ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT ''")
+// databases from before items had a type or a status: add the columns in place
+const cols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map((c) => c.name)
+if (!cols.includes('kind')) db.exec("ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT ''")
+if (!cols.includes('status')) db.exec("ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT ''")
 
 type Row = Record<string, unknown>
 
@@ -48,6 +49,7 @@ const toTask = (r: Row): Task => ({
   expectation: r.expectation as Task['expectation'],
   effort: r.effort as number | null,
   progress: r.progress as number,
+  status: (r.status ?? '') as Task['status'],
   start: r.start as string,
   end: r.end as string,
   owner: r.owner as string,
@@ -95,13 +97,16 @@ export const getTask = (id: string): Task | undefined => {
   return r && toTask(r)
 }
 
-export function insertTask(t: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'kind'> & { kind?: Task['kind']; id?: string; createdAt?: number }, by: string): Task {
+export function insertTask(
+  t: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'kind' | 'status'> & { kind?: Task['kind']; status?: Task['status']; id?: string; createdAt?: number },
+  by: string,
+): Task {
   const now = Date.now()
   const id = t.id ?? randomUUID()
   db.prepare(
-    `INSERT INTO tasks (id,title,kind,category,label,priority,urgency,expectation,effort,progress,start,"end",owner,notes,draft,created_at,updated_at,updated_by)
-     VALUES (@id,@title,@kind,@category,@label,@priority,@urgency,@expectation,@effort,@progress,@start,@end,@owner,@notes,@draft,@created_at,@updated_at,@updated_by)`,
-  ).run({ ...t, kind: t.kind ?? '', id, draft: Number(t.draft), created_at: t.createdAt ?? now, updated_at: now, updated_by: by })
+    `INSERT INTO tasks (id,title,kind,category,label,priority,urgency,expectation,effort,progress,status,start,"end",owner,notes,draft,created_at,updated_at,updated_by)
+     VALUES (@id,@title,@kind,@category,@label,@priority,@urgency,@expectation,@effort,@progress,@status,@start,@end,@owner,@notes,@draft,@created_at,@updated_at,@updated_by)`,
+  ).run({ ...t, kind: t.kind ?? '', status: t.status ?? '', id, draft: Number(t.draft), created_at: t.createdAt ?? now, updated_at: now, updated_by: by })
   return getTask(id)!
 }
 
@@ -264,6 +269,26 @@ migrate('number-real-items', () => {
   if (!rows.length) return
   const base = Math.min(...rows.map((t) => t.createdAt))
   for (const t of rows) db.prepare('UPDATE tasks SET created_at = ? WHERE id = ?').run(base + titles.indexOf(t.title), t.id)
+})
+
+// 31 Oct 2026 review: the missing awards are added, and every award sits at the president's level
+migrate('awards-oct31', () => {
+  if (empty) return // a fresh database was seeded with them already
+  const have = new Set(listTasks().map((t) => t.title))
+  const base = Date.now()
+  for (const [i, title] of AWARDS_OCT31.entries()) {
+    if (have.has(title)) continue
+    const t = insertTask(
+      { title, kind: 'event', category: '', label: 'ceo', priority: null, urgency: null, expectation: '', effort: null, progress: 0, start: '', end: '', owner: '', notes: '', draft: false, createdAt: base + i },
+      'النظام',
+    )
+    audit({ entity: 'task', entityId: t.id, entityTitle: t.title, action: 'create', field: '', old: null, new: t, by: 'النظام' })
+  }
+  for (const t of listTasks()) {
+    if (!AWARD_TITLES.includes(t.title) || t.label) continue
+    db.prepare("UPDATE tasks SET label = 'ceo' WHERE id = ?").run(t.id)
+    audit({ entity: 'task', entityId: t.id, entityTitle: t.title, action: 'update', field: 'label', old: t.label, new: 'ceo', by: 'النظام' })
+  }
 })
 
 export const DB_FILE = FILE

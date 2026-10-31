@@ -17,12 +17,11 @@ test('anyone can add and edit an item; the change log names them', async ({ page
   await page.goto('/')
   await page.locator('#register').getByRole('button', { name: 'إضافة مهمة' }).click()
   await page.getByLabel('المهمة / الفعالية', { exact: true }).fill('مهمة اختبار')
-  await page.getByLabel('النوع', { exact: true }).selectOption('event')
-  // the category is a drop-down of the team's services
-  const category = page.getByLabel('الفئة', { exact: true })
-  await expect(category).toHaveJSProperty('tagName', 'SELECT')
-  await expect(category.locator('option', { hasText: 'تصميم العروض' })).toHaveCount(1)
-  await category.selectOption('تصميم العروض')
+  // one classification only (31 Oct 2026): no separate category any more
+  const kind = page.getByLabel('النوع', { exact: true })
+  await expect(kind.locator('option', { hasText: 'إعلان داخلي' })).toHaveCount(1)
+  await kind.selectOption('news')
+  await expect(page.getByLabel('الفئة', { exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'إضافة', exact: true }).click()
   // first save asks for a name
   await page.getByLabel('الاسم').fill('سارة')
@@ -110,7 +109,7 @@ test('an overdue task stays visible with a badge and a count', async ({ page, re
   await page.goto('/')
   await expect(page.locator('table').getByText('مهمة متأخرة للاختبار')).toBeVisible()
   await expect(page.locator('table tr', { hasText: 'مهمة متأخرة للاختبار' }).getByText(/متأخرة \d|متأخرة [٠-٩]/)).toBeVisible()
-  const tile = page.locator('#top dl > div', { hasText: 'متأخرة' })
+  const tile = page.locator('#top dl > div').filter({ has: page.locator('dt', { hasText: /^متأخرة$/ }) })
   await expect(tile.locator('dd')).not.toHaveText('٠')
   await expect(page.locator('#timeline').getByText('مهمة متأخرة للاختبار')).toBeVisible()
 })
@@ -132,11 +131,11 @@ test('a typed «(مشرف)» is not trusted, and team saves keep the VP draft fl
 test('admin settings being typed survive someone else saving a task', async ({ page, request }) => {
   await page.goto('/')
   await admin(page)
-  await page.getByLabel('الفئات', { exact: true }).fill('فئة قيد الكتابة')
+  await page.getByLabel('اسم أخرى', { exact: true }).fill('مستوى قيد الكتابة')
   const state = await (await request.get('/api/state')).json()
   await request.patch(`/api/tasks/${state.tasks[0].id}`, { headers: { 'x-editor': 'other' }, data: { owner: `x-${Date.now()}` } })
   await page.waitForTimeout(1500)
-  await expect(page.getByLabel('الفئات', { exact: true })).toHaveValue('فئة قيد الكتابة')
+  await expect(page.getByLabel('اسم مستوى قيد الكتابة', { exact: true })).toHaveValue('مستوى قيد الكتابة')
 })
 
 test('a downloaded backup can be restored', async ({ page }) => {
@@ -198,4 +197,41 @@ test('matrix bubbles are numbered like the table, with a numbered key beside the
   await expect(key.getByRole('button', { name: /^٩ زيارة الرئيس لجامعة الأميرة نورة/ })).toBeVisible()
   await expect(page.locator('table tr', { hasText: 'زيارة الرئيس لجامعة الأميرة نورة' }).locator('td').first()).toHaveText('٩')
   await expect(page.locator('#matrix svg g[role="button"]', { hasText: '٩' }).first()).toBeVisible()
+})
+
+test('every item is in the matrix and on the timeline; awards sit at the president level', async ({ page, request }) => {
+  const { tasks } = await (await request.get('/api/state')).json()
+  const azri = tasks.find((t: { title: string }) => t.title === 'جائزة أزري')
+  expect(azri?.label).toBe('ceo')
+  expect(tasks.find((t: { title: string }) => t.title === 'جوائز Gartner').label).toBe('ceo')
+  await page.goto('/')
+  // every item has a numbered bubble: the unscored ones wait in the tray under the plot
+  await expect(page.locator('#matrix svg g[role="button"]')).toHaveCount(tasks.length)
+  await expect(page.locator('#matrix svg')).toContainText('لم تُقيَّم بعد')
+  await expect(page.getByRole('list', { name: 'أرقام البنود في المصفوفة' }).getByRole('listitem')).toHaveCount(tasks.length)
+  // the legend has the colours only
+  await expect(page.locator('#matrix')).not.toContainText('الجهد غير محدد')
+  await expect(page.locator('#matrix')).not.toContainText('بانتظار الموافقة')
+  // undated items get their own row on the timeline
+  await expect(page.getByLabel('بنود بلا تاريخ').getByRole('button', { name: 'جائزة أزري' })).toBeVisible()
+})
+
+test('the team sets the status, and the colour follows it', async ({ page, request }) => {
+  await page.goto('/')
+  const name = 'فيديو الذكاء الاصطناعي'
+  const status = page.getByLabel(`الحالة — ${name}`, { exact: true })
+  await expect(status).toHaveValue('not-started')
+  await status.selectOption('at-risk')
+  await page.getByLabel('الاسم').fill('الفريق')
+  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
+  await expect.poll(async () => (await (await request.get('/api/state')).json()).tasks.find((t: { title: string }) => t.title === name).status).toBe('at-risk')
+  // complete is always green, and fills the progress
+  await status.selectOption('done')
+  await expect
+    .poll(async () => {
+      const t = (await (await request.get('/api/state')).json()).tasks.find((x: { title: string }) => x.title === name)
+      return `${t.status}|${t.progress}`
+    })
+    .toBe('done|100')
+  expect((await request.patch(`/api/tasks/${(await (await request.get('/api/state')).json()).tasks[0].id}`, { headers: { 'x-editor': 'x' }, data: { status: 'nope' } })).status()).toBe(400)
 })

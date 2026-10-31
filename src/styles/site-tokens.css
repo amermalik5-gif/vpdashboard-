@@ -1,9 +1,10 @@
 /* Dashboard-specific semantic tokens (the DS values stay in tokens.css). */
 :root {
   --header-h: 72px;
-  /* task status from progress: < 20 red, 20–39 amber, ≥ 40 green, 100 done */
-  --status-red: var(--danger-500);
-  --status-amber: var(--warning-500);
-  --status-green: var(--success-500);
-  --status-done: var(--neutral-300);
+  /* item status, set by the team: complete is always green */
+  --status-not-started: var(--neutral-400);
+  --status-on-track: var(--success-300);
+  --status-at-risk: var(--warning-500);
+  --status-late: var(--danger-500);
+  --status-done: var(--success-700);
 }
