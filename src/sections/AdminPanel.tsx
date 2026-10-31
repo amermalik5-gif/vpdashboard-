@@ -64,19 +64,16 @@ function OptionList({ title, note, items, onChange }: { title: string; note: str
   )
 }
 
-/** Admin-only: the lists everyone picks from (levels and categories), plus backups. */
+/** Admin-only: the list of levels everyone picks from, plus backups. */
 export function AdminPanel() {
   const { state, run } = useBoardCtx()
   const saved = state?.settings
   const [s, setS] = useState<Settings | null>(saved ?? null)
-  const [cats, setCats] = useState('')
   // the server copy the form was loaded from: other people's saves must not wipe unsaved edits
   const [base, setBase] = useState<Settings | null>(null)
-  const formOf = (x: Settings, c: string) => JSON.stringify({ ...x, categories: c.split('\n').map((v) => v.trim()).filter(Boolean) })
-  const edited = !!(s && base) && formOf(s, cats) !== formOf(base, base.categories.join('\n'))
+  const edited = !!(s && base) && JSON.stringify(s) !== JSON.stringify(base)
   const load = (x: Settings) => {
     setS(x)
-    setCats(x.categories.join('\n'))
     setBase(x)
   }
   useEffect(() => {
@@ -86,7 +83,7 @@ export function AdminPanel() {
   }, [saved])
   if (!s || !saved || !base) return null
 
-  const dirty = formOf(s, cats) !== JSON.stringify(saved)
+  const dirty = JSON.stringify(s) !== JSON.stringify(saved)
   const changedElsewhere = edited && JSON.stringify(saved) !== JSON.stringify(base)
 
   const save = () =>
@@ -94,7 +91,6 @@ export function AdminPanel() {
       () =>
         api.saveSettings({
           labels: s.labels.filter((l) => l.name.trim()),
-          categories: cats.split('\n').map((c) => c.trim()).filter(Boolean),
         }),
       'حُفظت الإعدادات',
     ).then((r) => {
@@ -104,21 +100,13 @@ export function AdminPanel() {
   return (
     <div className="grid gap-6">
       <Card padding="none" className="p-4 md:p-6">
-        <div className="grid gap-8 md:grid-cols-2">
+        <div className="max-w-xl">
           <OptionList
             title="المستويات"
-            note="تظهر في عمود المستوى ومسارات الخط الزمني. إزالة مستوى تنقل بنوده إلى «بدون مستوى»."
+            note="تظهر في عمود المستوى وفي تصفية المصفوفة. إزالة مستوى تنقل بنوده إلى «بدون مستوى»."
             items={s.labels}
             onChange={(labels) => setS({ ...s, labels })}
           />
-          <div>
-            <h4 className="font-medium">الفئات</h4>
-            <p className="mb-3 text-xs text-fg-tertiary">فئة في كل سطر. تظهر في القائمة المنسدلة عند إضافة مهمة.</p>
-            <label htmlFor="cats" className="sr-only">
-              الفئات
-            </label>
-            <textarea id="cats" rows={8} className="field" value={cats} onChange={(e) => setCats(e.target.value)} />
-          </div>
         </div>
         <div className="mt-6 flex items-center gap-3 border-t border-line-subtle pt-4">
           <Button onClick={save} disabled={!dirty}>

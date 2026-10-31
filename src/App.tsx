@@ -91,7 +91,7 @@ function SignIn({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <Dialog id="signin-title" open={open} onClose={onClose} title="دخول المشرف">
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <p className="text-sm leading-relaxed text-fg-secondary">الجميع يستطيع إضافة المهام وتعديلها. المشرف يستطيع أيضًا الحذف وتغيير الطاقة الأسبوعية والقوائم واسترجاع التعديلات.</p>
+        <p className="text-sm leading-relaxed text-fg-secondary">الجميع يستطيع إضافة المهام وتعديلها وحذفها. المشرف يستطيع أيضًا تغيير قائمة المستويات واسترجاع التعديلات والبنود المحذوفة.</p>
         <div>
           <label htmlFor="admin-pw" className="field-label">
             كلمة المرور

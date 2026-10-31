@@ -8,8 +8,8 @@ import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDay, toArabicDigits } from '@/lib/format'
-import { STATUS, daysOverdue, hasDate, isOverdue, itemNumbers, span, statusOf } from '@/lib/schedule'
-import { ITEM_KINDS, type ItemKind, type Task } from '@/lib/types'
+import { STATUS, daysOverdue, hasDate, isOverdue, itemNumbers, progressPatch, span, statusOf, statusPatch, type Status } from '@/lib/schedule'
+import { ITEM_KINDS, TASK_STATUSES, type ItemKind, type Task } from '@/lib/types'
 
 type Sort = 'rank' | 'late' | 'end' | 'progress' | 'recent'
 const SORTS: { id: Sort; label: string }[] = [
@@ -22,9 +22,11 @@ const SORTS: { id: Sort; label: string }[] = [
 
 const rank = (t: Task) => (t.priority ?? -1) + (t.urgency ?? -1)
 const when = (t: Task) => (hasDate(t) ? span(t)[1].getTime() : Infinity)
+/** Late first (the longest overdue on top), then slightly late. */
+const lateness = (t: Task) => ({ late: 1000, 'at-risk': 1 }[statusOf(t) as string] ?? 0) + (isOverdue(t) ? daysOverdue(t) : 0)
 const SORT_FN: Record<Sort, (a: Task, b: Task) => number> = {
   rank: (a, b) => rank(b) - rank(a),
-  late: (a, b) => daysOverdue(b) * Number(isOverdue(b)) - daysOverdue(a) * Number(isOverdue(a)) || when(a) - when(b),
+  late: (a, b) => lateness(b) - lateness(a) || when(a) - when(b),
   end: (a, b) => when(a) - when(b),
   progress: (a, b) => a.progress - b.progress,
   recent: (a, b) => b.updatedAt - a.updatedAt,
@@ -105,21 +107,22 @@ function Progress({ t }: { t: Task }) {
       <span className="h-1.5 min-w-12 flex-1 overflow-hidden rounded-full bg-neutral-100">
         <span className="block h-full rounded-full" style={{ width: `${t.progress}%`, background: st.color }} />
       </span>
+      <span className="text-xs font-medium text-fg-secondary">{st.name}</span>
     </div>
   )
 }
 
 const KIND_OPTIONS: [string, string][] = [['', '–'], ...(Object.entries(ITEM_KINDS) as [string, string][])]
+const STATUS_OPTIONS = Object.entries(TASK_STATUSES) as [Status, string][]
 
 export function Register() {
   const { state, labels, labelName, openTask, run, patchLocal } = useBoardCtx()
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<Sort>('rank')
-  const categories = state?.settings.categories ?? []
   const tasks = useMemo(() => {
     const needle = q.trim()
     return [...(state?.tasks ?? [])]
-      .filter((t) => !needle || `${t.title} ${t.category} ${t.notes} ${labelName(t.label)} ${t.kind ? ITEM_KINDS[t.kind] : ''}`.includes(needle))
+      .filter((t) => !needle || `${t.title} ${t.notes} ${labelName(t.label)} ${t.kind ? ITEM_KINDS[t.kind] : ''} ${STATUS[statusOf(t)].name}`.includes(needle))
       .sort(SORT_FN[sort])
   }, [state, q, sort, labelName])
   // the same numbers as the bubbles in the matrix
@@ -138,7 +141,7 @@ export function Register() {
         <label className="relative block md:w-72">
           <span className="sr-only">بحث في المهام والفعاليات</span>
           <Search size={16} aria-hidden className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-fg-tertiary" />
-          <input className="field ps-9" type="search" placeholder="ابحث بالاسم أو النوع أو الفئة أو الملاحظات" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input className="field ps-9" type="search" placeholder="ابحث بالاسم أو النوع أو الحالة أو الملاحظات" value={q} onChange={(e) => setQ(e.target.value)} />
         </label>
         <div className="flex flex-wrap items-center gap-3">
           <Tabs label="ترتيب المهام والفعاليات" items={SORTS} value={sort} onChange={setSort} />
@@ -154,16 +157,16 @@ export function Register() {
           <thead>
             <tr className="text-xs text-fg-tertiary">
               <th className="w-10 py-3 ps-4 text-center font-medium">#</th>
-              <th className="w-6 py-3 font-medium" aria-label="الحالة" />
+              <th className="w-6 py-3 font-medium" aria-label="لون الحالة" />
               <th className="min-w-[230px] py-3 text-start font-medium">المهمة / الفعالية</th>
-              <th className="w-[92px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">النوع</th>
-              <th className="w-[150px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">الفئة</th>
+              <th className="w-[140px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">النوع</th>
               <th className="w-[130px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">المستوى</th>
               <th className="w-[74px] bg-blue-50/60 py-3 text-center font-medium text-blue-700">الأهمية</th>
               <th className="w-[74px] bg-blue-50/60 py-3 text-center font-medium text-blue-700">الاستعجال</th>
               <th className="w-[148px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">التاريخ</th>
               <th className="w-[66px] py-3 text-center font-medium">الجهد</th>
               <th className="w-[84px] py-3 text-center font-medium">الإنجاز</th>
+              <th className="w-[128px] py-3 text-start font-medium">الحالة</th>
               <th className="min-w-[170px] bg-blue-50/60 py-3 pe-4 text-start font-medium text-blue-700">ملاحظات</th>
             </tr>
           </thead>
@@ -198,14 +201,6 @@ export function Register() {
                   </td>
                   <td className="bg-blue-50/30 py-2">
                     <SelectCell label={`النوع — ${name}`} value={t.kind} options={KIND_OPTIONS} onSave={(v) => save(t, { kind: v as ItemKind })} />
-                  </td>
-                  <td className="bg-blue-50/30 py-2">
-                    <SelectCell
-                      label={`الفئة — ${name}`}
-                      value={t.category}
-                      options={[['', '–'], ...categories.map((c): [string, string] => [c, c]), ...(t.category && !categories.includes(t.category) ? [[t.category, t.category] as [string, string]] : [])]}
-                      onSave={(v) => save(t, { category: v })}
-                    />
                   </td>
                   <td className="bg-blue-50/30 py-2">
                     <SelectCell
@@ -261,8 +256,11 @@ export function Register() {
                       className="text-center font-ui tabular"
                       value={String(t.progress)}
                       options={[...(PROGRESS.includes(t.progress) ? [] : [[String(t.progress), `${toArabicDigits(t.progress)}٪`] as [string, string]]), ...numOptions(PROGRESS, '٪').slice(1)]}
-                      onSave={(v) => save(t, { progress: Number(v) })}
+                      onSave={(v) => save(t, progressPatch(t, Number(v)))}
                     />
+                  </td>
+                  <td className="py-2">
+                    <SelectCell label={`الحالة — ${name}`} value={statusOf(t)} options={STATUS_OPTIONS} onSave={(v) => save(t, statusPatch(v as Status))} />
                   </td>
                   <td className="bg-blue-50/30 py-2 pe-4">
                     <TextCell label={`ملاحظات — ${name}`} value={t.notes} placeholder="أضف ملاحظة" onSave={(v) => save(t, { notes: v })} />
@@ -295,11 +293,6 @@ export function Register() {
                     {t.label && (
                       <Badge tone="blue" size="xs">
                         {labelName(t.label)}
-                      </Badge>
-                    )}
-                    {t.category && (
-                      <Badge tone="neutral" size="xs">
-                        {t.category}
                       </Badge>
                     )}
                     <Overdue t={t} />
@@ -348,7 +341,7 @@ export function Register() {
         <p className="p-8 text-center text-fg-tertiary">{q ? 'لا شيء يطابق البحث.' : 'لا توجد مهام أو فعاليات بعد. اضغط «إضافة مهمة أو فعالية» لإضافة أول بند.'}</p>
       )}
       <p className="border-t border-line-subtle px-5 py-3 text-xs text-fg-tertiary">
-        عدّل أي قيمة مباشرة في الجدول وتُحفظ فورًا. الأعمدة المظللة يحددها نائب الرئيس، والجهد ونسبة الإنجاز يحدّثهما الفريق. اضغط على الاسم لفتح كل التفاصيل.
+        عدّل أي قيمة مباشرة في الجدول وتُحفظ فورًا. الأعمدة المظللة يحددها نائب الرئيس، والجهد ونسبة الإنجاز والحالة يحدّثها الفريق، والحالة تحدد اللون. اضغط على الاسم لفتح كل التفاصيل.
       </p>
     </Card>
   )

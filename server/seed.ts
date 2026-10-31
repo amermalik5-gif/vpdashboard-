@@ -19,6 +19,10 @@ export const SAMPLE_TITLES = [
 ]
 
 const EVENTS = 'إدارة الفعاليات وتنسيق الاجتماعات'
+/** Awards the VP asked to add on 31 Oct 2026. */
+export const AWARDS_OCT31 = ['جائزة أزري']
+/** Every award is at the president's level. */
+export const AWARD_TITLES = ['حفل جوائز ICXA', 'جوائز Gartner', ...AWARDS_OCT31]
 const PENDING = 'بانتظار موافقة نائب الرئيس والتنسيق مع مكتب الرئيس التنفيذي'
 
 /**
@@ -38,6 +42,7 @@ export function realItems(): NewTask[] {
     expectation: '',
     effort: null,
     progress: 0,
+    status: '',
     start: today,
     end: '',
     owner: '',
@@ -59,12 +64,14 @@ export function realItems(): NewTask[] {
     item('اليوم الرقمي', 'event', 10, 6, { category: EVENTS, end: '2026-12-15' }),
     item('حفل نهاية السنة', 'event', 7, 4, { category: EVENTS, end: '2026-12-31', notes: 'نهاية ديسمبر' }),
     // mentioned by the VP without scores yet
-    item('حفل جوائز ICXA', 'event', null, null, { category: EVENTS, end: '2026-11-05' }),
+    item('حفل جوائز ICXA', 'event', null, null, { category: EVENTS, label: 'ceo', end: '2026-11-05' }),
     item('CRM', '', null, null, { start: '2027-01-01', expectation: 'q', notes: 'الربع الأول ٢٠٢٧' }),
     item('CSR', '', null, null, { start: '2027-01-01', expectation: 'q', notes: 'الربع الأول ٢٠٢٧ (مشروع خاص بالعملاء)' }),
     item('Non-Tariff', '', null, null, { start: '2027-01-01', expectation: 'q', notes: 'الربع الأول ٢٠٢٧' }),
-    item('جوائز Gartner', 'event', null, null),
+    item('جوائز Gartner', 'event', null, null, { label: 'ceo' }),
     item('شهادة ISO', 'other', null, null),
+    // added after the 31 Oct 2026 review: every award, at the president's level
+    ...AWARDS_OCT31.map((title) => item(title, 'event', null, null, { label: 'ceo' })),
   ]
 }
 

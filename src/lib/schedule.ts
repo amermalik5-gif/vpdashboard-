@@ -1,4 +1,4 @@
-import { EXPECTATIONS, type Task } from './types'
+import { EXPECTATIONS, TASK_STATUSES, type Task, type TaskStatus } from './types'
 
 /* ---------- dates (local, day precision) ---------- */
 export const parseDate = (s: string): Date | null => {
@@ -30,15 +30,31 @@ export function span(t: Task): [Date, Date] {
 }
 
 /* ---------- status ---------- */
-export type Status = 'red' | 'amber' | 'green' | 'done'
-export const statusOf = (t: Task): Status => (t.progress >= 100 ? 'done' : t.progress >= 40 ? 'green' : t.progress >= 20 ? 'amber' : 'red')
-export const STATUS: Record<Status, { name: string; color: string; badge: 'danger' | 'warning' | 'success' | 'neutral' }> = {
-  red: { name: 'أقل من ٢٠٪', color: 'var(--status-red)', badge: 'danger' },
-  amber: { name: '٢٠–٣٩٪', color: 'var(--status-amber)', badge: 'warning' },
-  green: { name: '٤٠٪ فأكثر', color: 'var(--status-green)', badge: 'success' },
-  done: { name: 'مكتملة', color: 'var(--status-done)', badge: 'neutral' },
+/**
+ * The colour follows the item's status, set by the team (31 Oct 2026). Complete is always green;
+ * a passed date makes an open item late; with no status set it reads from the progress.
+ */
+export type Status = Exclude<TaskStatus, ''>
+export const isDone = (t: Task) => t.status === 'done' || (!t.status && t.progress >= 100)
+export const isOpen = (t: Task) => !isDone(t)
+export const statusOf = (t: Task): Status => {
+  if (isDone(t)) return 'done'
+  if (isOverdue(t)) return 'late'
+  if (t.status) return t.status
+  return t.progress > 0 ? 'on-track' : 'not-started'
 }
-export const isOpen = (t: Task) => t.progress < 100
+export const STATUS: Record<Status, { name: string; color: string }> = {
+  'not-started': { name: TASK_STATUSES['not-started'], color: 'var(--status-not-started)' },
+  'on-track': { name: TASK_STATUSES['on-track'], color: 'var(--status-on-track)' },
+  'at-risk': { name: TASK_STATUSES['at-risk'], color: 'var(--status-at-risk)' },
+  late: { name: TASK_STATUSES.late, color: 'var(--status-late)' },
+  done: { name: TASK_STATUSES.done, color: 'var(--status-done)' },
+}
+/** The patch for a new status: complete also fills the progress. */
+export const statusPatch = (status: Status): Partial<Task> => (status === 'done' ? { status, progress: 100 } : { status })
+/** The patch for a new progress: 100% completes the item, going back below reopens it. */
+export const progressPatch = (t: Task, progress: number): Partial<Task> =>
+  progress >= 100 && t.status && t.status !== 'done' ? { progress, status: 'done' } : progress < 100 && t.status === 'done' ? { progress, status: '' } : { progress }
 
 /** The item has a date: one set by the VP, or one estimated from an expected duration. */
 export const hasDate = (t: Task) => !!t.end || !!t.expectation
