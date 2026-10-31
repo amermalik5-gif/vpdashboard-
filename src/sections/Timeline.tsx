@@ -4,7 +4,7 @@ import { Tabs } from '@/components/ui/Tabs'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDate, fmtDay, fmtMonth, toArabicDigits } from '@/lib/format'
-import { hasDate, isOverdue, itemNumbers, packRows, span, STATUS, statusOf, today, type Status } from '@/lib/schedule'
+import { isOverdue, itemNumbers, packRows, span, STATUS, statusOf, today, type Status } from '@/lib/schedule'
 import { ITEM_KINDS, type ItemKind, type Task } from '@/lib/types'
 
 type Range = '3' | '6' | '12'
@@ -59,12 +59,13 @@ export function Timeline() {
 
   const tasks = state?.tasks ?? []
   const numbers = useMemo(() => itemNumbers(tasks), [tasks])
-  const undated = tasks.filter((t) => !hasDate(t)).sort((a, b) => numbers.get(a.id)! - numbers.get(b.id)!)
+  // only a date the VP set puts an item on the line; no estimated days
+  const undated = tasks.filter((t) => !t.end).sort((a, b) => numbers.get(a.id)! - numbers.get(b.id)!)
 
   const lanes = useMemo(() => {
-    // one point per item, on its day (set by the VP, or estimated from start + expected time).
+    // one point per item, on the day the VP set.
     // Overdue items dated before the range stay visible, pinned at the range's start.
-    const items: Item[] = tasks.filter(hasDate).flatMap((t) => {
+    const items: Item[] = tasks.filter((t) => !!t.end).flatMap((t) => {
       const [, day] = span(t)
       const s = isOverdue(t, now) && day < t0 ? t0 : day
       return s >= t0 && s < t1 ? [{ s, t }] : []
@@ -128,7 +129,6 @@ export function Timeline() {
                     const top = 8 + ri * ROW_H
                     const t = o.t
                     const st = STATUS[statusOf(t)]
-                    const estimated = !t.end
                     const kindName = t.kind ? ITEM_KINDS[t.kind] : 'غير مصنّف'
                     return (
                       <button
@@ -140,12 +140,11 @@ export function Timeline() {
                           flip(o.s) ? 'flex-row-reverse ps-2' : 'pe-2',
                         )}
                         style={{ ...(flip(o.s) ? { insetInlineEnd: `calc(${100 - pos(o.s)}% - 7px)` } : { insetInlineStart: `calc(${pos(o.s)}% - 7px)` }), top: top + 4 }}
-                        title={`${t.title} (${kindName})\nالتاريخ: ${fmtDate(span(t)[1])}${estimated ? ' (تقديري)' : ''}\n${st.name}`}
+                        title={`${t.title} (${kindName})\nالتاريخ: ${fmtDate(span(t)[1])}\n${st.name}`}
                       >
                         <Dot color={st.color} />
                         {t.title}
                         <span className="font-normal text-fg-tertiary">{fmtDay(span(t)[1])}</span>
-                        {estimated && <span className="rounded-full bg-neutral-100 px-1.5 text-2xs font-normal text-fg-secondary">تقديري</span>}
                         {isOverdue(t, now) && <span className="rounded-full bg-danger-50 px-1.5 text-2xs font-medium text-danger-700">متأخرة</span>}
                       </button>
                     )
