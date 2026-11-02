@@ -1,11 +1,27 @@
 import { useMemo, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Tabs } from '@/components/ui/Tabs'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDate, fmtDay, fmtMonth, toArabicDigits } from '@/lib/format'
-import { isOverdue, itemNumbers, packRows, span, STATUS, statusOf, today, type Status } from '@/lib/schedule'
+import { addDays, isoDate, isOverdue, itemNumbers, packRows, parseDate, span, STATUS, statusOf, today, weekStart, type Status } from '@/lib/schedule'
 import { ITEM_KINDS, type ItemKind, type Task } from '@/lib/types'
+
+type View = 'timeline' | 'calendar'
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'timeline', label: 'خط زمني' },
+  { id: 'calendar', label: 'تقويم' },
+]
+// each viewer's last choice; storage can be unavailable (private mode), so never rely on it
+const VIEW_KEY = 'vp:timeline-view'
+const savedView = (): View => {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'timeline'
+  } catch {
+    return 'timeline'
+  }
+}
 
 type Range = '3' | '6' | '12'
 const RANGES: { id: Range; label: string }[] = [
@@ -37,11 +53,105 @@ function firstMonth(now: Date) {
   return daysLeft <= 7 ? nextMonth : new Date(now.getFullYear(), now.getMonth(), 1)
 }
 
-/** Quarter grid in the booklet's roadmap style: time runs from the start side (right) to the left. */
+/** The dated items, seen as a timeline or as a month calendar, plus the ones without a date yet. */
 export function Timeline() {
   const { state, openTask } = useBoardCtx()
+  const [view, setViewState] = useState<View>(savedView)
+  const setView = (v: View) => {
+    setViewState(v)
+    try {
+      localStorage.setItem(VIEW_KEY, v)
+    } catch {
+      /* the choice just isn't remembered */
+    }
+  }
   const [range, setRange] = useState<Range>('6')
   const now = today()
+  const [month, setMonth] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1))
+  const shift = (n: number) => setMonth((m) => new Date(m.getFullYear(), m.getMonth() + n, 1))
+  const thisMonth = month.getFullYear() === now.getFullYear() && month.getMonth() === now.getMonth()
+
+  const tasks = state?.tasks ?? []
+  const numbers = useMemo(() => itemNumbers(tasks), [tasks])
+  // only a date the VP set puts an item on the line or the calendar; no estimated days
+  const undated = tasks.filter((t) => !t.end).sort((a, b) => numbers.get(a.id)! - numbers.get(b.id)!)
+
+  return (
+    <Card padding="none" className="overflow-hidden">
+      <div className="flex flex-col gap-3 border-b border-line-subtle p-4 md:flex-row md:items-center md:justify-between md:p-5">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-4">
+          <Tabs label="طريقة العرض" items={VIEWS} value={view} onChange={setView} />
+          <p className="text-sm text-fg-tertiary">
+            {view === 'timeline' ? 'كل بند يظهر في يومه، في مسار نوعه، ولونه حالته.' : 'كل بند في يومه من الشهر، ولونه حالته.'} اضغط على أي بند لفتحه.
+          </p>
+        </div>
+        {view === 'timeline' ? (
+          <Tabs label="مدى الخط الزمني" items={RANGES} value={range} onChange={setRange} />
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <button type="button" onClick={() => shift(-1)} aria-label="الشهر السابق" className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-line-subtle bg-surface text-fg-secondary hover:text-brand">
+              <ChevronRight size={18} aria-hidden />
+            </button>
+            <h3 className="min-w-[132px] text-center text-md font-medium" aria-live="polite">
+              {fmtMonth(month)} {toArabicDigits(month.getFullYear())}
+            </h3>
+            <button type="button" onClick={() => shift(1)} aria-label="الشهر التالي" className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-line-subtle bg-surface text-fg-secondary hover:text-brand">
+              <ChevronLeft size={18} aria-hidden />
+            </button>
+            {!thisMonth && (
+              <button type="button" onClick={() => setMonth(new Date(now.getFullYear(), now.getMonth(), 1))} className="ms-1 h-10 rounded-md px-3 text-sm font-medium text-brand hover:bg-brand-soft">
+                اليوم
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {view === 'timeline' ? <TimelineChart tasks={tasks} range={range} now={now} openTask={openTask} /> : <MonthCalendar tasks={tasks} numbers={numbers} month={month} now={now} openTask={openTask} />}
+
+      {/* no item is left out: the ones without a date yet sit in their own row */}
+      {undated.length > 0 && (
+        <div className="grid grid-cols-[112px_1fr] border-t border-line-subtle md:grid-cols-[140px_1fr]">
+          <div className="flex flex-col justify-center border-e border-line-subtle px-4 py-3">
+            <span className="text-sm font-medium">بلا تاريخ بعد</span>
+            <span className="text-2xs text-fg-tertiary">{items(undated.length)}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 p-3" aria-label="بنود بلا تاريخ">
+            {undated.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => openTask(t.id)}
+                title={`${t.title}\n${STATUS[statusOf(t)].name} · حدّد التاريخ ليظهر على الخط الزمني والتقويم`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-line-subtle bg-surface px-2.5 py-1 text-xs font-medium text-fg-primary hover:bg-brand-soft"
+              >
+                <Dot color={STATUS[statusOf(t)].color} size={10} />
+                {t.title}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* legend: colours only */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line-subtle px-4 py-3 text-xs text-fg-secondary md:px-5">
+        {(Object.keys(STATUS) as Status[]).map((k) => (
+          <span key={k} className="inline-flex items-center gap-1.5">
+            <Dot color={STATUS[k].color} size={10} />
+            {STATUS[k].name}
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-1.5">
+          {view === 'timeline' ? <span className="h-3 border-s-[1.5px] border-dashed border-gold-500" /> : <span className="h-3 w-3 rounded-full bg-brand" />}
+          اليوم
+        </span>
+      </div>
+    </Card>
+  )
+}
+
+/** Quarter grid in the booklet's roadmap style: time runs from the start side (right) to the left. */
+function TimelineChart({ tasks, range, now, openTask }: { tasks: Task[]; range: Range; now: Date; openTask: (id: string) => void }) {
   const t0 = firstMonth(now)
   const t1 = new Date(t0.getFullYear(), t0.getMonth() + Number(range), 1)
   const pos = (d: Date) => Math.min(100, Math.max(0, ((d.getTime() - t0.getTime()) / (t1.getTime() - t0.getTime())) * 100))
@@ -57,11 +167,6 @@ export function Timeline() {
   const flip = (d: Date) => pos(d) > 100 - LABEL_MIN
   const extent = (o: Item): [number, number] => (flip(o.s) ? [pos(o.s) - LABEL_MIN, pos(o.s)] : [pos(o.s), pos(o.s) + LABEL_MIN])
 
-  const tasks = state?.tasks ?? []
-  const numbers = useMemo(() => itemNumbers(tasks), [tasks])
-  // only a date the VP set puts an item on the line; no estimated days
-  const undated = tasks.filter((t) => !t.end).sort((a, b) => numbers.get(a.id)! - numbers.get(b.id)!)
-
   const lanes = useMemo(() => {
     // one point per item, on the day the VP set.
     // Overdue items dated before the range stay visible, pinned at the range's start.
@@ -75,17 +180,12 @@ export function Timeline() {
       .filter((l) => l.items.length)
       .map((l) => ({ ...l, rows: packRows(l.items, extent) }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, range, t0.getTime()])
+  }, [tasks, range, t0.getTime()])
 
   const nowPos = pos(now)
   const showToday = now >= t0 && now < t1
 
   return (
-    <Card padding="none" className="overflow-hidden">
-      <div className="flex flex-col gap-3 border-b border-line-subtle p-4 md:flex-row md:items-center md:justify-between md:p-5">
-        <p className="text-sm text-fg-tertiary">كل بند يظهر في يومه، في مسار نوعه، ولونه حالته. اضغط على أي بند لفتحه.</p>
-        <Tabs label="مدى الخط الزمني" items={RANGES} value={range} onChange={setRange} />
-      </div>
       <div className="overflow-x-auto">
         <div className="min-w-[1020px]">
           {/* month header */}
@@ -169,44 +269,113 @@ export function Timeline() {
           )}
         </div>
       </div>
+  )
+}
 
-      {/* no item is left out: the ones without a date yet sit in their own row */}
-      {undated.length > 0 && (
-        <div className="grid grid-cols-[112px_1fr] border-t border-line-subtle md:grid-cols-[140px_1fr]">
-          <div className="flex flex-col justify-center border-e border-line-subtle px-4 py-3">
-            <span className="text-sm font-medium">بلا تاريخ بعد</span>
-            <span className="text-2xs text-fg-tertiary">{items(undated.length)}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 p-3" aria-label="بنود بلا تاريخ">
-            {undated.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => openTask(t.id)}
-                title={`${t.title}\n${STATUS[statusOf(t)].name} · حدّد التاريخ ليظهر على الخط الزمني`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-line-subtle bg-surface px-2.5 py-1 text-xs font-medium text-fg-primary hover:bg-brand-soft"
-              >
-                <Dot color={STATUS[statusOf(t)].color} size={10} />
-                {t.title}
-              </button>
-            ))}
-          </div>
+
+
+const WEEKDAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+const dayLong = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-arab', { weekday: 'long', day: 'numeric', month: 'long' })
+/** Items a day cell shows before «+٢ أخرى». */
+const PER_DAY = 3
+
+/**
+ * One month, weeks starting on Sunday. Each item sits on the day the VP set, coloured by its
+ * status. On phones the grid becomes a list of the days that have something.
+ */
+function MonthCalendar({ tasks, numbers, month, now, openTask }: { tasks: Task[]; numbers: Map<string, number>; month: Date; now: Date; openTask: (id: string) => void }) {
+  const [open, setOpen] = useState<string | null>(null)
+  const byDay = useMemo(() => {
+    const m = new Map<string, Task[]>()
+    for (const t of tasks) if (t.end && parseDate(t.end)) m.set(t.end, [...(m.get(t.end) ?? []), t])
+    for (const list of m.values()) list.sort((a, b) => numbers.get(a.id)! - numbers.get(b.id)!)
+    return m
+  }, [tasks, numbers])
+
+  const last = new Date(month.getFullYear(), month.getMonth() + 1, 0)
+  const days: Date[] = []
+  for (let d = weekStart(month); d <= addDays(weekStart(last), 6); d = addDays(d, 1)) days.push(d)
+  const inMonth = (d: Date) => d.getMonth() === month.getMonth()
+  const todayIso = isoDate(now)
+  const busy = days.filter((d) => inMonth(d) && byDay.has(isoDate(d)))
+
+  const chip = (t: Task) => {
+    const st = STATUS[statusOf(t)]
+    return (
+      <button
+        key={t.id}
+        type="button"
+        onClick={() => openTask(t.id)}
+        title={`${toArabicDigits(numbers.get(t.id)!)}. ${t.title} (${t.kind ? ITEM_KINDS[t.kind] : 'غير مصنّف'})\n${st.name}`}
+        className="flex w-full min-w-0 items-center gap-1.5 rounded border-s-[3px] bg-neutral-50 px-1.5 py-1 text-start text-xs font-medium text-fg-primary hover:bg-brand-soft"
+        style={{ borderInlineStartColor: st.color }}
+      >
+        <span className="truncate">{t.title}</span>
+      </button>
+    )
+  }
+
+  return (
+    <div aria-label={`تقويم ${fmtMonth(month)} ${toArabicDigits(month.getFullYear())}`} role="region">
+      {/* wide screens: the month grid */}
+      <div className="hidden md:block">
+        <div className="grid grid-cols-7 border-b border-line-subtle bg-neutral-25 text-center text-xs font-medium text-fg-secondary">
+          {WEEKDAYS.map((w) => (
+            <div key={w} className="py-2">
+              {w}
+            </div>
+          ))}
         </div>
-      )}
-
-      {/* legend: colours only */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line-subtle px-4 py-3 text-xs text-fg-secondary md:px-5">
-        {(Object.keys(STATUS) as Status[]).map((k) => (
-          <span key={k} className="inline-flex items-center gap-1.5">
-            <Dot color={STATUS[k].color} size={10} />
-            {STATUS[k].name}
-          </span>
-        ))}
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-3 border-s-[1.5px] border-dashed border-gold-500" />
-          اليوم
-        </span>
+        <div className="grid grid-cols-7">
+          {days.map((d) => {
+            const iso = isoDate(d)
+            const list = byDay.get(iso) ?? []
+            const shown = open === iso ? list : list.slice(0, PER_DAY)
+            const weekend = d.getDay() === 5 || d.getDay() === 6
+            return (
+              <div
+                key={iso}
+                aria-label={dayLong.format(d)}
+                className={cn(
+                  'flex min-h-[116px] min-w-0 flex-col gap-1 border-b border-e border-line-subtle p-1.5 [&:nth-child(7n)]:border-e-0',
+                  !inMonth(d) ? 'bg-neutral-25' : weekend && 'bg-neutral-25/60',
+                )}
+              >
+                <span
+                  className={cn(
+                    'flex h-6 w-6 items-center justify-center rounded-full text-xs tabular',
+                    iso === todayIso ? 'bg-brand font-bold text-white' : inMonth(d) ? 'font-medium text-fg-secondary' : 'text-fg-muted',
+                  )}
+                >
+                  {toArabicDigits(d.getDate())}
+                </span>
+                {shown.map(chip)}
+                {list.length > PER_DAY && (
+                  <button type="button" onClick={() => setOpen(open === iso ? null : iso)} className="px-1.5 text-start text-2xs font-medium text-brand hover:underline">
+                    {open === iso ? 'عرض أقل' : `+${toArabicDigits(list.length - PER_DAY)} أخرى`}
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
-    </Card>
+
+      {/* phones: the days that have something, in order */}
+      <ol className="divide-y divide-line-subtle md:hidden">
+        {busy.map((d) => {
+          const iso = isoDate(d)
+          return (
+            <li key={iso} className="flex gap-3 px-4 py-3">
+              <span className={cn('w-24 shrink-0 text-xs font-medium', iso === todayIso ? 'text-brand' : 'text-fg-secondary')}>{dayLong.format(d)}</span>
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                {byDay.get(iso)!.map(chip)}
+              </div>
+            </li>
+          )
+        })}
+        {!busy.length && <li className="px-4 py-6 text-sm text-fg-muted">لا شيء في هذا الشهر.</li>}
+      </ol>
+    </div>
   )
 }

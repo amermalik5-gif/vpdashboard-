@@ -281,3 +281,20 @@ test('anyone can drag the list beside the matrix to change the order and the num
   const positions = (await (await request.get('/api/state')).json()).tasks.map((t: { position: number }) => t.position).sort((a: number, b: number) => a - b)
   expect(positions).toEqual(positions.map((_: number, i: number) => i + 1))
 })
+
+test('the timeline can switch to a month calendar', async ({ page, request }) => {
+  await request.post('/api/tasks', { headers: { 'x-editor': 'qa' }, data: { title: 'فعالية في التقويم', kind: 'event', end: iso(0) } })
+  await page.goto('/')
+  const tl = page.locator('#timeline')
+  await tl.getByRole('tab', { name: 'تقويم' }).click()
+  const cal = tl.getByRole('region', { name: /^تقويم/ })
+  await expect(cal.getByRole('button', { name: 'فعالية في التقويم' })).toBeVisible()
+  await tl.getByRole('button', { name: 'الشهر التالي' }).click()
+  await expect(cal.getByRole('button', { name: 'فعالية في التقويم' })).toHaveCount(0)
+  await tl.getByRole('button', { name: 'اليوم', exact: true }).click()
+  await cal.getByRole('button', { name: 'فعالية في التقويم' }).click()
+  await expect(page.getByLabel('المهمة / الفعالية', { exact: true })).toHaveValue('فعالية في التقويم')
+  // the choice is remembered on this browser
+  await page.reload()
+  await expect(page.locator('#timeline').getByRole('tab', { name: 'تقويم' })).toHaveAttribute('aria-selected', 'true')
+})
