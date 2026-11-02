@@ -42,6 +42,8 @@ export interface Task {
   progress: number
   /** set by the team; decides the colour */
   status: TaskStatus
+  /** set by the team: the work is done and the item waits for its launch day (shown with ★) */
+  ready: boolean
   start: string
   end: string
   owner: string
@@ -111,7 +113,7 @@ export const EXPECTATIONS: Record<Expectation, { name: string; days: number; urg
 }
 
 /** Editable task fields and how the server validates them. */
-export const TASK_FIELDS = ['title', 'kind', 'category', 'label', 'priority', 'urgency', 'expectation', 'effort', 'progress', 'status', 'start', 'end', 'owner', 'notes', 'draft'] as const
+export const TASK_FIELDS = ['title', 'kind', 'category', 'label', 'priority', 'urgency', 'expectation', 'effort', 'progress', 'status', 'ready', 'start', 'end', 'owner', 'notes', 'draft'] as const
 export const EVENT_FIELDS = ['name', 'date', 'type', 'notes', 'draft'] as const
 
 export const FIELD_NAMES: Record<string, string> = {
@@ -125,6 +127,7 @@ export const FIELD_NAMES: Record<string, string> = {
   effort: 'الجهد',
   progress: 'نسبة الإنجاز',
   status: 'الحالة',
+  ready: 'جاهز للإطلاق',
   start: 'تاريخ البدء',
   end: 'التاريخ',
   owner: 'المسؤول',

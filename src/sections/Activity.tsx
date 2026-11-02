@@ -11,6 +11,7 @@ function show(field: string, v: unknown, labelName: (id: string) => string): str
   if (field === 'expectation') return EXPECTATIONS[v as Expectation]?.name ?? String(v)
   if (field === 'progress') return `${toArabicDigits(Number(v))}٪`
   if (field === 'draft') return v ? 'غير مؤكد' : 'مؤكد'
+  if (field === 'ready') return v ? 'جاهز' : 'غير جاهز'
   if (Array.isArray(v)) return `${toArabicDigits(v.length)} عناصر`
   if (typeof v === 'number') return toArabicDigits(v)
   const s = String(v)

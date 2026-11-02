@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ReadyStar } from '@/components/ReadyStar'
 import { Card } from '@/components/ui/Card'
 import { Tabs } from '@/components/ui/Tabs'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDate, fmtDay, fmtMonth, toArabicDigits } from '@/lib/format'
-import { addDays, isoDate, isOverdue, itemNumbers, packRows, parseDate, span, STATUS, statusOf, today, weekStart, type Status } from '@/lib/schedule'
+import { addDays, isoDate, isOverdue, isReady, itemNumbers, packRows, parseDate, span, STATUS, statusOf, today, weekStart, type Status } from '@/lib/schedule'
 import { ITEM_KINDS, type ItemKind, type Task } from '@/lib/types'
 
 type View = 'timeline' | 'calendar'
@@ -148,6 +149,7 @@ export function Timeline() {
               >
                 <Dot color={colorOf(t)} size={10} />
                 {t.title}
+                {isReady(t) && <ReadyStar size={12} />}
               </button>
             ))}
           </div>
@@ -163,6 +165,10 @@ export function Timeline() {
             {l.name}
           </span>
         ))}
+        <span className="inline-flex items-center gap-1.5">
+          <ReadyStar size={12} />
+          جاهز للإطلاق
+        </span>
         <span className="inline-flex items-center gap-1.5">
           {view === 'timeline' ? <span className="h-3 border-s-[1.5px] border-dashed border-gold-500" /> : <span className="h-3 w-3 rounded-full border-2 border-fg-primary" />}
           اليوم
@@ -266,6 +272,7 @@ function TimelineChart({ tasks, range, now, openTask }: { tasks: Task[]; range: 
                       >
                         <Dot color={st.color} />
                         {t.title}
+                        {isReady(t) && <ReadyStar size={13} />}
                         <span className="font-normal text-fg-tertiary">{fmtDay(span(t)[1])}</span>
                         {isOverdue(t, now) && <span className="rounded-full bg-danger-50 px-1.5 text-2xs font-medium text-danger-700">متأخرة</span>}
                       </button>
@@ -350,6 +357,7 @@ function MonthCalendar({
         style={{ borderInlineStartColor: color, background: `color-mix(in srgb, ${color} 14%, white)` }}
       >
         <span className="truncate">{t.title}</span>
+        {isReady(t) && <ReadyStar size={12} />}
       </button>
     )
   }

@@ -3,16 +3,17 @@ import { Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
+import { ReadyStar } from '@/components/ReadyStar'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { fmtDay, fmtTime, toArabicDigits } from '@/lib/format'
-import { addDays, isoDate, parseDate, progressPatch, STATUS, statusOf, statusPatch, today, type Status } from '@/lib/schedule'
+import { addDays, isoDate, isReady, parseDate, progressPatch, STATUS, statusOf, statusPatch, today, type Status } from '@/lib/schedule'
 import { EXPECTATIONS, ITEM_KINDS, TASK_STATUSES, type Expectation, type ItemKind, type Task } from '@/lib/types'
 
 /** Fields the VP sets (the shaded group); changing one confirms a seeded draft. */
 const VP_FIELDS = ['priority', 'urgency', 'expectation', 'label', 'kind', 'end'] as const
 
-type Form = Pick<Task, 'title' | 'kind' | 'label' | 'priority' | 'urgency' | 'expectation' | 'effort' | 'progress' | 'status' | 'start' | 'end' | 'owner' | 'notes'>
+type Form = Pick<Task, 'title' | 'kind' | 'label' | 'priority' | 'urgency' | 'expectation' | 'effort' | 'progress' | 'status' | 'ready' | 'start' | 'end' | 'owner' | 'notes'>
 
 const blank = (): Form => ({
   title: '',
@@ -24,6 +25,7 @@ const blank = (): Form => ({
   effort: null,
   progress: 0,
   status: '',
+  ready: false,
   start: isoDate(today()),
   end: '',
   owner: '',
@@ -72,8 +74,8 @@ export function TaskSheet() {
     if (!editing.open) return
     setConfirmDelete(false)
     if (!task) return setF(blank())
-    const { title, kind, label, priority, urgency, expectation, effort, progress, status, start, end, owner, notes } = task
-    setF({ title, kind, label, priority, urgency, expectation, effort, progress, status, start, end, owner, notes })
+    const { title, kind, label, priority, urgency, expectation, effort, progress, status, ready, start, end, owner, notes } = task
+    setF({ title, kind, label, priority, urgency, expectation, effort, progress, status, ready, start, end, owner, notes })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing.open, editing.id])
 
@@ -121,6 +123,7 @@ export function TaskSheet() {
           <h2 id="task-sheet-title" className="truncate text-lg font-medium">
             {task ? 'تعديل' : 'مهمة أو فعالية جديدة'}
           </h2>
+          {isReady(current) && <ReadyStar size={16} />}
           {task?.draft && (
             <Badge tone="warning" size="xs">
               بانتظار الموافقة
@@ -227,6 +230,24 @@ export function TaskSheet() {
               </select>
             </div>
             <p className="field-hint">المكتملة خضراء دائمًا، وما فات تاريخه يصبح «متأخرة».</p>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line-subtle p-3 hover:bg-neutral-25">
+              <input
+                type="checkbox"
+                aria-label="جاهز للإطلاق"
+                className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-[var(--ready-stroke)]"
+                checked={f.ready}
+                onChange={(e) => set('ready', e.target.checked)}
+              />
+              <span>
+                <span className="flex items-center gap-1.5 font-medium">
+                  جاهز للإطلاق
+                  <ReadyStar />
+                </span>
+                <span className="block text-xs text-fg-tertiary">العمل منتهٍ وينتظر يوم الإطلاق. تظهر نجمة بجانبه في كل مكان، وبعد الإطلاق اجعل حالته «مكتملة».</span>
+              </span>
+            </label>
           </div>
           <div>
             <label htmlFor="t-start" className="field-label">

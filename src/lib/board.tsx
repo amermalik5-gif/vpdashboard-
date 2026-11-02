@@ -26,6 +26,9 @@ interface BoardApi {
   run: <T>(p: () => Promise<T>, done?: string) => Promise<T | undefined>
   /** Optimistic local patch so drags and edits feel instant before the live refresh. */
   patchLocal: (id: string, patch: Partial<Task>) => void
+  /** The table shows only the items ready for launch (from the summary tile). */
+  readyOnly: boolean
+  setReadyOnly: (on: boolean) => void
 }
 
 const Ctx = createContext<BoardApi | null>(null)
@@ -39,6 +42,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   const { state, audit, conn, refresh, setState } = useBoard()
   const [editing, setEditing] = useState<{ open: boolean; id: string | null }>({ open: false, id: null })
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [readyOnly, setReadyOnly] = useState(false)
   const seq = useRef(0)
 
   const toast = useCallback((text: string, tone: Toast['tone'] = 'ok') => {
@@ -86,8 +90,10 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       toasts,
       run,
       patchLocal,
+      readyOnly,
+      setReadyOnly,
     }
-  }, [state, audit, conn, refresh, editing, toast, toasts, run, patchLocal])
+  }, [state, audit, conn, refresh, editing, toast, toasts, run, patchLocal, readyOnly])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

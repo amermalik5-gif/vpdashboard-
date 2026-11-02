@@ -79,6 +79,7 @@ function cleanTaskField(k: (typeof TASK_FIELDS)[number], v: unknown): unknown {
     case 'end':
       return date(v, k)
     case 'draft':
+    case 'ready':
       return !!v
   }
 }
@@ -183,7 +184,7 @@ const csvCell = (v: unknown) => {
 api.get('/backup/tasks.csv', requireAdmin, (_req, res) => {
   const { labels } = store.getSettings()
   const labelName = (id: string) => labels.find((l) => l.id === id)?.name ?? id
-  const head = ['المهمة / الفعالية', 'النوع', 'الفئة', 'المستوى', 'درجة الأهمية', 'مستوى الاستعجال', 'المدة المتوقعة', 'الجهد', 'نسبة الإنجاز', 'الحالة', 'تاريخ البدء', 'التاريخ', 'المسؤول', 'الملاحظات', 'بانتظار التأكيد', 'آخر تعديل بواسطة', 'آخر تعديل']
+  const head = ['المهمة / الفعالية', 'النوع', 'الفئة', 'المستوى', 'درجة الأهمية', 'مستوى الاستعجال', 'المدة المتوقعة', 'الجهد', 'نسبة الإنجاز', 'الحالة', 'جاهز للإطلاق', 'تاريخ البدء', 'التاريخ', 'المسؤول', 'الملاحظات', 'بانتظار التأكيد', 'آخر تعديل بواسطة', 'آخر تعديل']
   const rows = store.listTasks().map((t) => [
     t.title,
     t.kind ? ITEM_KINDS[t.kind] : '',
@@ -195,6 +196,7 @@ api.get('/backup/tasks.csv', requireAdmin, (_req, res) => {
     t.effort,
     t.progress,
     t.status ? TASK_STATUSES[t.status] : '',
+    t.ready ? 'نعم' : 'لا',
     t.start,
     t.end,
     t.owner,
@@ -250,7 +252,7 @@ api.post(
       store.db.prepare('DELETE FROM events').run()
       for (const t of tasks)
         store.insertTask(
-          { id: t.id, createdAt: t.createdAt, title: t.title, kind: t.kind ?? '', category: t.category ?? '', label: t.label ?? '', priority: t.priority ?? null, urgency: t.urgency ?? null, expectation: t.expectation ?? '', effort: t.effort ?? null, progress: t.progress, status: t.status ?? '', start: t.start ?? '', end: t.end ?? '', owner: t.owner ?? '', notes: t.notes ?? '', draft: t.draft, position: t.position },
+          { id: t.id, createdAt: t.createdAt, title: t.title, kind: t.kind ?? '', category: t.category ?? '', label: t.label ?? '', priority: t.priority ?? null, urgency: t.urgency ?? null, expectation: t.expectation ?? '', effort: t.effort ?? null, progress: t.progress, status: t.status ?? '', ready: !!t.ready, start: t.start ?? '', end: t.end ?? '', owner: t.owner ?? '', notes: t.notes ?? '', draft: t.draft, position: t.position },
           by,
         )
       // events from backups made before events and tasks were merged become items of type «فعالية»
@@ -285,6 +287,7 @@ api.post(
         effort: f.effort ?? null,
         progress: f.progress ?? 0,
         status: f.status ?? '',
+        ready: !!f.ready,
         start: f.start || new Date().toISOString().slice(0, 10),
         end: f.end ?? '',
         owner: f.owner ?? '',

@@ -37,6 +37,8 @@ export function span(t: Task): [Date, Date] {
 export type Status = Exclude<TaskStatus, ''>
 export const isDone = (t: Task) => t.status === 'done' || (!t.status && t.progress >= 100)
 export const isOpen = (t: Task) => !isDone(t)
+/** Ticked «جاهز للإطلاق» and not launched yet (once complete, the star has done its job). */
+export const isReady = (t: Task) => t.ready && isOpen(t)
 export const statusOf = (t: Task): Status => {
   if (isDone(t)) return 'done'
   if (isOverdue(t)) return 'late'
