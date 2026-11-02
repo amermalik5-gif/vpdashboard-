@@ -76,17 +76,26 @@ export function Timeline() {
   // only a date the VP set puts an item on the line or the calendar; no estimated days
   const undated = tasks.filter((t) => !t.end).sort((a, b) => numbers.get(a.id)! - numbers.get(b.id)!)
 
-  // the calendar is coloured by level (who the item is for), the timeline by status
-  const LEVELS = 7
+  // the timeline is coloured by status; the calendar shows the CEO's items in red, events in
+  // green (the VP's feedback, 2 Nov 2026) and everything else by level
+  const KNOWN = ['ceo', 'evp', 'vp', 'internal', 'other']
+  const extras = labels.filter((l) => !KNOWN.includes(l.id))
   const levelColor = (id: string) => {
-    const i = labels.findIndex((l) => l.id === id)
-    return i < 0 ? 'var(--level-none)' : `var(--level-${(i % LEVELS) + 1})`
+    if (!labels.some((l) => l.id === id)) return 'var(--level-none)'
+    if (KNOWN.includes(id)) return `var(--level-${id})`
+    return `var(--level-extra-${(extras.findIndex((l) => l.id === id) % 3) + 1})`
   }
+  const calendarColor = (t: Task) => (t.label === 'ceo' ? levelColor('ceo') : t.kind === 'event' ? 'var(--kind-event)' : levelColor(t.label))
   const legend =
     view === 'calendar'
-      ? [...labels.map((l) => ({ key: l.id, name: l.name, color: levelColor(l.id) })), { key: '__none', name: 'بدون مستوى', color: 'var(--level-none)' }]
+      ? [
+          ...labels.filter((l) => l.id === 'ceo').map((l) => ({ key: l.id, name: l.name, color: levelColor(l.id) })),
+          { key: '__event', name: `${ITEM_KINDS.event} (غير الرئيس التنفيذي)`, color: 'var(--kind-event)' },
+          ...labels.filter((l) => l.id !== 'ceo').map((l) => ({ key: l.id, name: l.name, color: levelColor(l.id) })),
+          { key: '__none', name: 'بدون مستوى', color: 'var(--level-none)' },
+        ]
       : (Object.keys(STATUS) as Status[]).map((k) => ({ key: k, name: STATUS[k].name, color: STATUS[k].color }))
-  const colorOf = (t: Task) => (view === 'calendar' ? levelColor(t.label) : STATUS[statusOf(t)].color)
+  const colorOf = (t: Task) => (view === 'calendar' ? calendarColor(t) : STATUS[statusOf(t)].color)
 
   return (
     <Card padding="none" className="overflow-hidden">
@@ -94,7 +103,7 @@ export function Timeline() {
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-4">
           <Tabs label="طريقة العرض" items={VIEWS} value={view} onChange={setView} />
           <p className="text-sm text-fg-tertiary">
-            {view === 'timeline' ? 'كل بند يظهر في يومه، في مسار نوعه، ولونه حالته.' : 'كل بند في يومه من الشهر، ولونه مستواه.'} اضغط على أي بند لفتحه.
+            {view === 'timeline' ? 'كل بند يظهر في يومه، في مسار نوعه، ولونه حالته.' : 'كل بند في يومه من الشهر: الرئيس التنفيذي بالأحمر، والفعاليات بالأخضر، وغيرها بلون مستواه.'} اضغط على أي بند لفتحه.
           </p>
         </div>
         {view === 'timeline' ? (
@@ -147,7 +156,7 @@ export function Timeline() {
 
       {/* legend: colours only (status on the timeline, level on the calendar) */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line-subtle px-4 py-3 text-xs text-fg-secondary md:px-5" aria-label="دليل الألوان">
-        {view === 'calendar' && <span className="font-medium text-fg-primary">اللون = المستوى:</span>}
+        {view === 'calendar' && <span className="font-medium text-fg-primary">اللون:</span>}
         {legend.map((l) => (
           <span key={l.key} className="inline-flex items-center gap-1.5">
             <Dot color={l.color} size={10} />
