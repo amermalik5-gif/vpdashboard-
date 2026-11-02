@@ -55,7 +55,7 @@ function firstMonth(now: Date) {
 
 /** The dated items, seen as a timeline or as a month calendar, plus the ones without a date yet. */
 export function Timeline() {
-  const { state, openTask } = useBoardCtx()
+  const { state, openTask, labels, labelName } = useBoardCtx()
   const [view, setViewState] = useState<View>(savedView)
   const setView = (v: View) => {
     setViewState(v)
@@ -76,13 +76,25 @@ export function Timeline() {
   // only a date the VP set puts an item on the line or the calendar; no estimated days
   const undated = tasks.filter((t) => !t.end).sort((a, b) => numbers.get(a.id)! - numbers.get(b.id)!)
 
+  // the calendar is coloured by level (who the item is for), the timeline by status
+  const LEVELS = 7
+  const levelColor = (id: string) => {
+    const i = labels.findIndex((l) => l.id === id)
+    return i < 0 ? 'var(--level-none)' : `var(--level-${(i % LEVELS) + 1})`
+  }
+  const legend =
+    view === 'calendar'
+      ? [...labels.map((l) => ({ key: l.id, name: l.name, color: levelColor(l.id) })), { key: '__none', name: 'بدون مستوى', color: 'var(--level-none)' }]
+      : (Object.keys(STATUS) as Status[]).map((k) => ({ key: k, name: STATUS[k].name, color: STATUS[k].color }))
+  const colorOf = (t: Task) => (view === 'calendar' ? levelColor(t.label) : STATUS[statusOf(t)].color)
+
   return (
     <Card padding="none" className="overflow-hidden">
       <div className="flex flex-col gap-3 border-b border-line-subtle p-4 md:flex-row md:items-center md:justify-between md:p-5">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-4">
           <Tabs label="طريقة العرض" items={VIEWS} value={view} onChange={setView} />
           <p className="text-sm text-fg-tertiary">
-            {view === 'timeline' ? 'كل بند يظهر في يومه، في مسار نوعه، ولونه حالته.' : 'كل بند في يومه من الشهر، ولونه حالته.'} اضغط على أي بند لفتحه.
+            {view === 'timeline' ? 'كل بند يظهر في يومه، في مسار نوعه، ولونه حالته.' : 'كل بند في يومه من الشهر، ولونه مستواه.'} اضغط على أي بند لفتحه.
           </p>
         </div>
         {view === 'timeline' ? (
@@ -107,7 +119,7 @@ export function Timeline() {
         )}
       </div>
 
-      {view === 'timeline' ? <TimelineChart tasks={tasks} range={range} now={now} openTask={openTask} /> : <MonthCalendar tasks={tasks} numbers={numbers} month={month} now={now} openTask={openTask} />}
+      {view === 'timeline' ? <TimelineChart tasks={tasks} range={range} now={now} openTask={openTask} /> : <MonthCalendar tasks={tasks} numbers={numbers} month={month} now={now} openTask={openTask} colorOf={colorOf} levelName={(t) => (t.label ? labelName(t.label) : 'بدون مستوى')} />}
 
       {/* no item is left out: the ones without a date yet sit in their own row */}
       {undated.length > 0 && (
@@ -122,10 +134,10 @@ export function Timeline() {
                 key={t.id}
                 type="button"
                 onClick={() => openTask(t.id)}
-                title={`${t.title}\n${STATUS[statusOf(t)].name} · حدّد التاريخ ليظهر على الخط الزمني والتقويم`}
+                title={`${t.title}\n${t.label ? labelName(t.label) : 'بدون مستوى'} · ${STATUS[statusOf(t)].name} · حدّد التاريخ ليظهر على الخط الزمني والتقويم`}
                 className="inline-flex items-center gap-1.5 rounded-full border border-line-subtle bg-surface px-2.5 py-1 text-xs font-medium text-fg-primary hover:bg-brand-soft"
               >
-                <Dot color={STATUS[statusOf(t)].color} size={10} />
+                <Dot color={colorOf(t)} size={10} />
                 {t.title}
               </button>
             ))}
@@ -133,16 +145,17 @@ export function Timeline() {
         </div>
       )}
 
-      {/* legend: colours only */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line-subtle px-4 py-3 text-xs text-fg-secondary md:px-5">
-        {(Object.keys(STATUS) as Status[]).map((k) => (
-          <span key={k} className="inline-flex items-center gap-1.5">
-            <Dot color={STATUS[k].color} size={10} />
-            {STATUS[k].name}
+      {/* legend: colours only (status on the timeline, level on the calendar) */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line-subtle px-4 py-3 text-xs text-fg-secondary md:px-5" aria-label="دليل الألوان">
+        {view === 'calendar' && <span className="font-medium text-fg-primary">اللون = المستوى:</span>}
+        {legend.map((l) => (
+          <span key={l.key} className="inline-flex items-center gap-1.5">
+            <Dot color={l.color} size={10} />
+            {l.name}
           </span>
         ))}
         <span className="inline-flex items-center gap-1.5">
-          {view === 'timeline' ? <span className="h-3 border-s-[1.5px] border-dashed border-gold-500" /> : <span className="h-3 w-3 rounded-full bg-brand" />}
+          {view === 'timeline' ? <span className="h-3 border-s-[1.5px] border-dashed border-gold-500" /> : <span className="h-3 w-3 rounded-full border-2 border-fg-primary" />}
           اليوم
         </span>
       </div>
@@ -283,7 +296,23 @@ const PER_DAY = 3
  * One month, weeks starting on Sunday. Each item sits on the day the VP set, coloured by its
  * status. On phones the grid becomes a list of the days that have something.
  */
-function MonthCalendar({ tasks, numbers, month, now, openTask }: { tasks: Task[]; numbers: Map<string, number>; month: Date; now: Date; openTask: (id: string) => void }) {
+function MonthCalendar({
+  tasks,
+  numbers,
+  month,
+  now,
+  openTask,
+  colorOf,
+  levelName,
+}: {
+  tasks: Task[]
+  numbers: Map<string, number>
+  month: Date
+  now: Date
+  openTask: (id: string) => void
+  colorOf: (t: Task) => string
+  levelName: (t: Task) => string
+}) {
   const [open, setOpen] = useState<string | null>(null)
   const byDay = useMemo(() => {
     const m = new Map<string, Task[]>()
@@ -299,16 +328,17 @@ function MonthCalendar({ tasks, numbers, month, now, openTask }: { tasks: Task[]
   const todayIso = isoDate(now)
   const busy = days.filter((d) => inMonth(d) && byDay.has(isoDate(d)))
 
+  // a tint of the level colour, with the full colour on the start edge
   const chip = (t: Task) => {
-    const st = STATUS[statusOf(t)]
+    const color = colorOf(t)
     return (
       <button
         key={t.id}
         type="button"
         onClick={() => openTask(t.id)}
-        title={`${toArabicDigits(numbers.get(t.id)!)}. ${t.title} (${t.kind ? ITEM_KINDS[t.kind] : 'غير مصنّف'})\n${st.name}`}
-        className="flex w-full min-w-0 items-center gap-1.5 rounded border-s-[3px] bg-neutral-50 px-1.5 py-1 text-start text-xs font-medium text-fg-primary hover:bg-brand-soft"
-        style={{ borderInlineStartColor: st.color }}
+        title={`${toArabicDigits(numbers.get(t.id)!)}. ${t.title} (${t.kind ? ITEM_KINDS[t.kind] : 'غير مصنّف'})\n${levelName(t)} · ${STATUS[statusOf(t)].name}`}
+        className="flex w-full min-w-0 items-center gap-1.5 rounded border-s-[3px] px-1.5 py-1 text-start text-xs font-medium text-fg-primary hover:brightness-95"
+        style={{ borderInlineStartColor: color, background: `color-mix(in srgb, ${color} 14%, white)` }}
       >
         <span className="truncate">{t.title}</span>
       </button>
@@ -344,7 +374,8 @@ function MonthCalendar({ tasks, numbers, month, now, openTask }: { tasks: Task[]
                 <span
                   className={cn(
                     'flex h-6 w-6 items-center justify-center rounded-full text-xs tabular',
-                    iso === todayIso ? 'bg-brand font-bold text-white' : inMonth(d) ? 'font-medium text-fg-secondary' : 'text-fg-muted',
+                    // an outline, so today never looks like a level colour
+                    iso === todayIso ? 'border-2 border-fg-primary font-bold text-fg-primary' : inMonth(d) ? 'font-medium text-fg-secondary' : 'text-fg-muted',
                   )}
                 >
                   {toArabicDigits(d.getDate())}
@@ -367,7 +398,7 @@ function MonthCalendar({ tasks, numbers, month, now, openTask }: { tasks: Task[]
           const iso = isoDate(d)
           return (
             <li key={iso} className="flex gap-3 px-4 py-3">
-              <span className={cn('w-24 shrink-0 text-xs font-medium', iso === todayIso ? 'text-brand' : 'text-fg-secondary')}>{dayLong.format(d)}</span>
+              <span className={cn('w-24 shrink-0 text-xs', iso === todayIso ? 'font-bold text-fg-primary' : 'font-medium text-fg-secondary')}>{dayLong.format(d)}</span>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 {byDay.get(iso)!.map(chip)}
               </div>

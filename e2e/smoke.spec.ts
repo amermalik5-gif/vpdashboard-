@@ -288,6 +288,9 @@ test('the timeline can switch to a month calendar', async ({ page, request }) =>
   const tl = page.locator('#timeline')
   await tl.getByRole('tab', { name: 'تقويم' }).click()
   const cal = tl.getByRole('region', { name: /^تقويم/ })
+  // the calendar is coloured by level, the timeline by status
+  await expect(tl.getByLabel('دليل الألوان')).toContainText('اللون = المستوى')
+  await expect(tl.getByLabel('دليل الألوان')).toContainText('الرئيس التنفيذي')
   await expect(cal.getByRole('button', { name: 'فعالية في التقويم' })).toBeVisible()
   await tl.getByRole('button', { name: 'الشهر التالي' }).click()
   await expect(cal.getByRole('button', { name: 'فعالية في التقويم' })).toHaveCount(0)

@@ -7,4 +7,13 @@
   --status-at-risk: var(--warning-500);
   --status-late: var(--danger-500);
   --status-done: var(--success-700);
+  /* level colours (calendar): in the order of the levels list — CEO, EVP, VP, internal, other… */
+  --level-1: var(--nwc-blue-900);
+  --level-2: var(--nwc-blue-500);
+  --level-3: #7a5af8;
+  --level-4: var(--nwc-green-500);
+  --level-5: var(--nwc-gold-500);
+  --level-6: #dd2590;
+  --level-7: var(--tertiary-700);
+  --level-none: var(--neutral-300);
 }
