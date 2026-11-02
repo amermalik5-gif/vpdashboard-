@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { Reorder, useDragControls } from 'framer-motion'
 import { GripVertical } from 'lucide-react'
+import { ReadyStar } from '@/components/ReadyStar'
 import { Card } from '@/components/ui/Card'
 import { FilterChips } from '@/components/ui/FilterChips'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { toArabicDigits } from '@/lib/format'
-import { STATUS, itemNumbers, spreadBubbles, statusOf } from '@/lib/schedule'
+import { STATUS, isReady, itemNumbers, spreadBubbles, statusOf } from '@/lib/schedule'
 import type { Task } from '@/lib/types'
 
 /* plot geometry (SVG units). RTL: urgency grows toward the LEFT, priority toward the top. */
@@ -21,6 +22,14 @@ const sx = (u: number) => BOX.x1 - (Math.min(10, Math.max(0, u)) / 10) * (BOX.x1
 const sy = (p: number) => BOX.y1 - (Math.min(10, Math.max(0, p)) / 10) * (BOX.y1 - BOX.y0)
 // big enough at effort 1 to hold a two-digit number
 const rad = (e: number | null) => 11 + Math.min(10, Math.max(1, e ?? 1)) * 2.7
+
+/** A five-pointed star around (cx, cy): the «جاهز للإطلاق» badge on a bubble. */
+const starPoints = (cx: number, cy: number, R: number) =>
+  Array.from({ length: 10 }, (_, i) => {
+    const r = i % 2 ? R * 0.45 : R
+    const a = -Math.PI / 2 + (i * Math.PI) / 5
+    return `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`
+  }).join(' ')
 
 const QUADRANTS = [
   { name: 'مهمة وطارئة', x: BOX.x0 + 2, y: BOX.y0 - 34, anchor: 'start' as const, hot: true },
@@ -131,7 +140,7 @@ export function Matrix() {
         opacity={dim ? 0.25 : 1}
         tabIndex={0}
         role="button"
-        aria-label={scored ? `${t.title}: أهمية ${t.priority}، استعجال ${t.urgency}، ${st.name}` : `${t.title}: لم تُقيَّم بعد، ${st.name}`}
+        aria-label={`${scored ? `${t.title}: أهمية ${t.priority}، استعجال ${t.urgency}، ${st.name}` : `${t.title}: لم تُقيَّم بعد، ${st.name}`}${isReady(t) ? '، جاهز للإطلاق' : ''}`}
         onPointerEnter={() => setHover(t.id)}
         onPointerLeave={() => setHover(null)}
         onFocus={() => setHover(t.id)}
@@ -141,12 +150,15 @@ export function Matrix() {
         onPointerUp={(e) => onUp(e, t.id, scored)}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(t.id))}
       >
-        <title>{`${n}. ${t.title} · ${st.name}\n${scored ? `الأهمية ${toArabicDigits(t.priority ?? 0)} · الاستعجال ${toArabicDigits(t.urgency ?? 0)}` : 'لم تُقيَّم بعد: اسحبها إلى المصفوفة'}`}</title>
+        <title>{`${n}. ${t.title} · ${st.name}${isReady(t) ? ' · ★ جاهز للإطلاق' : ''}\n${scored ? `الأهمية ${toArabicDigits(t.priority ?? 0)} · الاستعجال ${toArabicDigits(t.urgency ?? 0)}` : 'لم تُقيَّم بعد: اسحبها إلى المصفوفة'}`}</title>
         <circle cx={x} cy={y} r={b.r} fill={st.color} stroke="#fff" strokeWidth={2} />
         {hover === t.id && <circle cx={x} cy={y} r={b.r + 5} fill="none" stroke="var(--nwc-blue-500)" strokeWidth={2.5} />}
         <text x={x} y={y + 4.5 * Math.min(k, 1.4)} textAnchor="middle" fontSize={13 * Math.min(k, 1.4)} fontWeight={700} fill="#fff" pointerEvents="none">
           {n}
         </text>
+        {isReady(t) && (
+          <polygon points={starPoints(x + b.r * 0.72, y - b.r * 0.72, 7.5 * Math.min(k, 1.4))} fill="var(--ready)" stroke="#fff" strokeWidth={1.5} strokeLinejoin="round" pointerEvents="none" />
+        )}
       </g>
     )
   }
@@ -245,6 +257,10 @@ export function Matrix() {
             {STATUS[k].name}
           </span>
         ))}
+        <span className="inline-flex items-center gap-1.5">
+          <ReadyStar size={12} />
+          جاهز للإطلاق
+        </span>
       </div>
     </Card>
   )
@@ -358,7 +374,10 @@ function KeyRow(p: { t: Task; n: number; active: boolean; onHover: (on: boolean)
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular text-white" style={{ background: st.color }}>
             {toArabicDigits(p.n)}
           </span>
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg-primary">{p.t.title}</span>
+          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="truncate text-sm font-medium text-fg-primary">{p.t.title}</span>
+            {isReady(p.t) && <ReadyStar size={13} />}
+          </span>
           {unscored && <span className="shrink-0 text-2xs text-fg-tertiary">لم تُقيَّم</span>}
         </button>
       </div>

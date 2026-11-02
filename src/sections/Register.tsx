@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, Plus, Search } from 'lucide-react'
+import { ChevronLeft, Plus, Search, X } from 'lucide-react'
+import { ReadyStar } from '@/components/ReadyStar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -8,7 +9,7 @@ import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDay, toArabicDigits } from '@/lib/format'
-import { STATUS, daysOverdue, hasDate, isOverdue, itemNumbers, progressPatch, span, statusOf, statusPatch, type Status } from '@/lib/schedule'
+import { STATUS, daysOverdue, hasDate, isOverdue, isReady, itemNumbers, progressPatch, span, statusOf, statusPatch, type Status } from '@/lib/schedule'
 import { ITEM_KINDS, TASK_STATUSES, type ItemKind, type Task } from '@/lib/types'
 
 type Sort = 'order' | 'rank' | 'late' | 'end' | 'progress' | 'recent'
@@ -119,15 +120,16 @@ const KIND_OPTIONS: [string, string][] = [['', '–'], ...(Object.entries(ITEM_K
 const STATUS_OPTIONS = Object.entries(TASK_STATUSES) as [Status, string][]
 
 export function Register() {
-  const { state, labels, labelName, openTask, run, patchLocal } = useBoardCtx()
+  const { state, labels, labelName, openTask, run, patchLocal, readyOnly, setReadyOnly } = useBoardCtx()
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<Sort>('order')
   const tasks = useMemo(() => {
     const needle = q.trim()
     return [...(state?.tasks ?? [])]
+      .filter((t) => !readyOnly || isReady(t))
       .filter((t) => !needle || `${t.title} ${t.notes} ${labelName(t.label)} ${t.kind ? ITEM_KINDS[t.kind] : ''} ${STATUS[statusOf(t)].name}`.includes(needle))
       .sort(SORT_FN[sort])
-  }, [state, q, sort, labelName])
+  }, [state, q, sort, labelName, readyOnly])
   // the same numbers as the bubbles in the matrix
   const numbers = useMemo(() => itemNumbers(state?.tasks ?? []), [state])
 
@@ -154,6 +156,18 @@ export function Register() {
         </div>
       </div>
 
+      {/* from the «جاهزة للإطلاق» tile in the summary bar */}
+      {readyOnly && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-subtle bg-brand-soft px-4 py-2.5 text-sm md:px-5">
+          <ReadyStar />
+          <span className="font-medium">تُعرض البنود الجاهزة للإطلاق فقط ({toArabicDigits(tasks.length)})</span>
+          <button type="button" onClick={() => setReadyOnly(false)} className="ms-auto inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium text-brand hover:bg-surface">
+            عرض الكل
+            <X size={14} aria-hidden />
+          </button>
+        </div>
+      )}
+
       {/* wide screens: one table, every value editable in place */}
       <div className="hidden overflow-x-auto lg:block">
         <table className="w-full min-w-[1280px] border-collapse text-sm">
@@ -170,6 +184,7 @@ export function Register() {
               <th className="w-[66px] py-3 text-center font-medium">الجهد</th>
               <th className="w-[84px] py-3 text-center font-medium">الإنجاز</th>
               <th className="w-[128px] py-3 text-start font-medium">الحالة</th>
+              <th className="w-[64px] py-3 text-center font-medium">جاهز للإطلاق</th>
               <th className="min-w-[170px] bg-blue-50/60 py-3 pe-4 text-start font-medium text-blue-700">ملاحظات</th>
             </tr>
           </thead>
@@ -194,6 +209,7 @@ export function Register() {
                         {name}
                         <ChevronLeft size={14} aria-hidden className="text-fg-muted opacity-0 transition-opacity group-hover:opacity-100" />
                       </button>
+                      {isReady(t) && <ReadyStar size={16} />}
                       <Overdue t={t} />
                       {t.draft && (
                         <Badge tone="warning" size="xs">
@@ -265,6 +281,15 @@ export function Register() {
                   <td className="py-2">
                     <SelectCell label={`الحالة — ${name}`} value={statusOf(t)} options={STATUS_OPTIONS} onSave={(v) => save(t, statusPatch(v as Status))} />
                   </td>
+                  <td className="py-2 text-center">
+                    <input
+                      type="checkbox"
+                      aria-label={`جاهز للإطلاق — ${name}`}
+                      className="h-4 w-4 cursor-pointer align-middle accent-[var(--ready-stroke)]"
+                      checked={t.ready}
+                      onChange={(e) => save(t, { ready: e.target.checked })}
+                    />
+                  </td>
                   <td className="bg-blue-50/30 py-2 pe-4">
                     <TextCell label={`ملاحظات — ${name}`} value={t.notes} placeholder="أضف ملاحظة" onSave={(v) => save(t, { notes: v })} />
                   </td>
@@ -286,6 +311,7 @@ export function Register() {
                   <p className="font-medium">
                     <span className="me-1.5 font-ui tabular text-fg-tertiary">{toArabicDigits(numbers.get(t.id) ?? 0)}.</span>
                     {t.title}
+                    {isReady(t) && <ReadyStar className="ms-1.5 align-[-2px]" />}
                   </p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {t.kind && (
@@ -341,7 +367,7 @@ export function Register() {
       </ul>
 
       {!tasks.length && (
-        <p className="p-8 text-center text-fg-tertiary">{q ? 'لا شيء يطابق البحث.' : 'لا توجد مهام أو فعاليات بعد. اضغط «إضافة مهمة أو فعالية» لإضافة أول بند.'}</p>
+        <p className="p-8 text-center text-fg-tertiary">{readyOnly ? 'لا توجد بنود جاهزة للإطلاق بعد. علّم «جاهز للإطلاق» في البند ليظهر هنا.' : q ? 'لا شيء يطابق البحث.' : 'لا توجد مهام أو فعاليات بعد. اضغط «إضافة مهمة أو فعالية» لإضافة أول بند.'}</p>
       )}
       <p className="border-t border-line-subtle px-5 py-3 text-xs text-fg-tertiary">
         عدّل أي قيمة مباشرة في الجدول وتُحفظ فورًا. الأعمدة المظللة يحددها نائب الرئيس، والجهد ونسبة الإنجاز والحالة يحدّثها الفريق، والحالة تحدد اللون. اضغط على الاسم لفتح كل التفاصيل.

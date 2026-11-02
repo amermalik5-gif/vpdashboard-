@@ -15,7 +15,7 @@ db.pragma('foreign_keys = ON')
 db.exec(`
   CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '',
-    priority INTEGER, urgency INTEGER, expectation TEXT NOT NULL DEFAULT '', effort INTEGER, progress INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '',
+    priority INTEGER, urgency INTEGER, expectation TEXT NOT NULL DEFAULT '', effort INTEGER, progress INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', ready INTEGER NOT NULL DEFAULT 0,
     start TEXT NOT NULL DEFAULT '', "end" TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
     draft INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL DEFAULT ''
   );
@@ -36,6 +36,7 @@ const cols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]
 if (!cols.includes('kind')) db.exec("ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT ''")
 if (!cols.includes('status')) db.exec("ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT ''")
 if (!cols.includes('position')) db.exec('ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0')
+if (!cols.includes('ready')) db.exec('ALTER TABLE tasks ADD COLUMN ready INTEGER NOT NULL DEFAULT 0')
 
 type Row = Record<string, unknown>
 
@@ -51,6 +52,7 @@ const toTask = (r: Row): Task => ({
   effort: r.effort as number | null,
   progress: r.progress as number,
   status: (r.status ?? '') as Task['status'],
+  ready: !!r.ready,
   start: r.start as string,
   end: r.end as string,
   owner: r.owner as string,
@@ -101,7 +103,14 @@ export const getTask = (id: string): Task | undefined => {
 }
 
 export function insertTask(
-  t: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'kind' | 'status' | 'position'> & { kind?: Task['kind']; status?: Task['status']; position?: number; id?: string; createdAt?: number },
+  t: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'kind' | 'status' | 'ready' | 'position'> & {
+    kind?: Task['kind']
+    status?: Task['status']
+    ready?: boolean
+    position?: number
+    id?: string
+    createdAt?: number
+  },
   by: string,
 ): Task {
   const now = Date.now()
@@ -109,9 +118,9 @@ export function insertTask(
   // a new item goes to the end of the list
   const position = t.position ?? (db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM tasks').get() as { p: number }).p
   db.prepare(
-    `INSERT INTO tasks (id,title,kind,category,label,priority,urgency,expectation,effort,progress,status,start,"end",owner,notes,draft,position,created_at,updated_at,updated_by)
-     VALUES (@id,@title,@kind,@category,@label,@priority,@urgency,@expectation,@effort,@progress,@status,@start,@end,@owner,@notes,@draft,@position,@created_at,@updated_at,@updated_by)`,
-  ).run({ ...t, kind: t.kind ?? '', status: t.status ?? '', position, id, draft: Number(t.draft), created_at: t.createdAt ?? now, updated_at: now, updated_by: by })
+    `INSERT INTO tasks (id,title,kind,category,label,priority,urgency,expectation,effort,progress,status,ready,start,"end",owner,notes,draft,position,created_at,updated_at,updated_by)
+     VALUES (@id,@title,@kind,@category,@label,@priority,@urgency,@expectation,@effort,@progress,@status,@ready,@start,@end,@owner,@notes,@draft,@position,@created_at,@updated_at,@updated_by)`,
+  ).run({ ...t, kind: t.kind ?? '', status: t.status ?? '', ready: Number(!!t.ready), position, id, draft: Number(t.draft), created_at: t.createdAt ?? now, updated_at: now, updated_by: by })
   return getTask(id)!
 }
 

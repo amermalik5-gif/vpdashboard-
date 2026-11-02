@@ -3,14 +3,15 @@ import pattern from '@/assets/brand/bg-pattern.webp'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDate, toArabicDigits } from '@/lib/format'
-import { addDays, hasDate, isOpen, span, statusOf, today } from '@/lib/schedule'
+import { ReadyStar } from '@/components/ReadyStar'
+import { addDays, hasDate, isOpen, isReady, span, statusOf, today } from '@/lib/schedule'
 
 /**
  * Slim summary bar under the header: title, as-of date, the five numbers the VP checks
  * first, and the main action. Keeps the booklet's navy + pattern, without a full hero.
  */
 export function Hero() {
-  const { state, openTask } = useBoardCtx()
+  const { state, openTask, setReadyOnly } = useBoardCtx()
   const tasks = state?.tasks ?? []
   const open = tasks.filter(isOpen)
   const now = today()
@@ -28,6 +29,8 @@ export function Hero() {
       }).length,
       name: 'مواعيد خلال ١٤ يومًا',
     },
+    // a click shows just these in the table
+    { n: open.filter(isReady).length, name: 'جاهزة للإطلاق', ready: true },
   ]
   const drafts = tasks.filter((t) => t.draft).length
   // when the data last changed, not just today's date
@@ -36,7 +39,7 @@ export function Hero() {
   return (
     <section id="top" data-tone="dark" className="relative isolate overflow-hidden bg-blue-900 pb-5 pt-[calc(var(--header-h)+16px)] text-white">
       <div aria-hidden className="pattern-watermark absolute inset-0 -z-10 opacity-[0.06]" style={{ ['--pattern-url' as string]: `url(${pattern})` }} />
-      <div className="container-page flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="container-page flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
           <h1 className="text-display-xs font-medium">لوحة أولويات نائب الرئيس</h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-blue-200">
@@ -50,10 +53,16 @@ export function Hero() {
           </div>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center md:gap-3">
-          <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             {stats.map((s) => (
-              <div key={s.name} className="min-w-0 rounded-lg border border-white/15 bg-white/[0.07] px-3 py-2 md:min-w-[118px]">
-                <dt className="text-2xs leading-tight text-white/75">{s.name}</dt>
+              <div key={s.name} className={cn('relative min-w-0 rounded-lg border border-white/15 bg-white/[0.07] px-3 py-2 md:min-w-[108px]', s.ready && 'transition-colors duration-fast hover:bg-white/[0.14]')}>
+                {s.ready && (
+                  <a href="#register" onClick={() => setReadyOnly(true)} className="absolute inset-0 rounded-lg" aria-label={`عرض البنود الجاهزة للإطلاق في الجدول (${toArabicDigits(s.n)})`} />
+                )}
+                <dt className="flex items-center gap-1 text-2xs leading-tight text-white/75">
+                  {s.ready && <ReadyStar size={11} />}
+                  {s.name}
+                </dt>
                 <dd className={cn('text-xl font-medium tabular', s.hot && s.n > 0 && 'text-warning-400', s.alarm && s.n > 0 && 'text-danger-500')}>{state ? toArabicDigits(s.n) : '–'}</dd>
               </div>
             ))}

@@ -303,3 +303,33 @@ test('the timeline can switch to a month calendar', async ({ page, request }) =>
   await page.reload()
   await expect(page.locator('#timeline').getByRole('tab', { name: 'تقويم' })).toHaveAttribute('aria-selected', 'true')
 })
+
+test('the team marks an item ready for launch: a star by it, and a tile that lists the ready ones', async ({ page, request }) => {
+  const name = 'فيديو الدرونز'
+  const ready = async () => (await (await request.get('/api/state')).json()).tasks.find((t: { title: string }) => t.title === name).ready
+  await page.goto('/')
+  const tile = page.locator('#top dl > div').filter({ has: page.locator('dt', { hasText: 'جاهزة للإطلاق' }) })
+  await expect(tile.locator('dd')).toHaveText('٠')
+  // tick it straight in the table
+  await page.getByLabel(`جاهز للإطلاق — ${name}`, { exact: true }).check()
+  await page.getByLabel('الاسم').fill('الفريق')
+  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
+  await expect.poll(ready).toBe(true)
+  await expect(tile.locator('dd')).toHaveText('١')
+  // a star next to it in the table and in the list beside the matrix
+  await expect(page.locator('table tr', { hasText: name }).locator('[title="جاهز للإطلاق"]')).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'أرقام البنود في المصفوفة' }).getByRole('button', { name: new RegExp(`${name}.*جاهز للإطلاق`) })).toHaveCount(1)
+  // the tile shows just the ready items, until «عرض الكل»
+  await tile.getByRole('link').click()
+  await expect(page.locator('table tbody tr')).toHaveCount(1)
+  await page.getByRole('button', { name: 'عرض الكل' }).click()
+  await expect.poll(async () => page.locator('table tbody tr').count()).toBeGreaterThan(1)
+  // the form shows it ticked; unticking takes the star away
+  await page.locator('table').getByRole('button', { name }).click()
+  const box = page.getByRole('checkbox', { name: 'جاهز للإطلاق', exact: true })
+  await expect(box).toBeChecked()
+  await box.uncheck()
+  await page.getByRole('button', { name: 'حفظ', exact: true }).click()
+  await expect.poll(ready).toBe(false)
+  await expect(tile.locator('dd')).toHaveText('٠')
+})
