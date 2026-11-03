@@ -333,3 +333,34 @@ test('the team marks an item ready for launch: a star by it, and a tile that lis
   await expect.poll(ready).toBe(false)
   await expect(tile.locator('dd')).toHaveText('٠')
 })
+
+test('in the calendar, dragging an item to another day changes its date', async ({ page, request }) => {
+  const title = 'فعالية للسحب'
+  const day = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const now = new Date()
+  // a day in the same week, so it is always in the grid on screen
+  const next = new Date(now)
+  next.setDate(now.getDate() + (now.getDay() === 6 ? -1 : 1))
+  await request.post('/api/tasks', { headers: { 'x-editor': 'qa' }, data: { title, kind: 'event', end: day(now) } })
+  const end = async () => (await (await request.get('/api/state')).json()).tasks.find((t: { title: string }) => t.title === title).end
+
+  // tall enough that the month and the undated row are both on screen while dragging
+  await page.setViewportSize({ width: 1280, height: 1400 })
+  await page.goto('/')
+  const tl = page.locator('#timeline')
+  await tl.getByRole('tab', { name: 'تقويم' }).click()
+  await tl.scrollIntoViewIfNeeded()
+  const cal = tl.getByRole('region', { name: /^تقويم/ })
+  await cal.getByRole('button', { name: title }).dragTo(cal.locator(`[data-day="${day(next)}"]`))
+  await page.getByLabel('الاسم').fill('المنسق')
+  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
+  await expect.poll(end).toBe(day(next))
+  await expect(cal.locator(`[data-day="${day(next)}"]`).getByRole('button', { name: title })).toBeVisible()
+
+  // onto «بلا تاريخ بعد»: the date goes; from there onto a day: it comes back
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await cal.getByRole('button', { name: title }).dragTo(tl.getByLabel('بنود بلا تاريخ'))
+  await expect.poll(end).toBe('')
+  await tl.getByLabel('بنود بلا تاريخ').getByRole('button', { name: title }).dragTo(cal.locator(`[data-day="${day(now)}"]`))
+  await expect.poll(end).toBe(day(now))
+})

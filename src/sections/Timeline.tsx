@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState, type DragEvent as RDragEvent } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { ReadyStar } from '@/components/ReadyStar'
 import { Card } from '@/components/ui/Card'
 import { Tabs } from '@/components/ui/Tabs'
+import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDate, fmtDay, fmtMonth, toArabicDigits } from '@/lib/format'
@@ -56,7 +57,7 @@ function firstMonth(now: Date) {
 
 /** The dated items, seen as a timeline or as a month calendar, plus the ones without a date yet. */
 export function Timeline() {
-  const { state, openTask, labels, labelName } = useBoardCtx()
+  const { state, openTask, labels, labelName, run, patchLocal } = useBoardCtx()
   const [view, setViewState] = useState<View>(savedView)
   const setView = (v: View) => {
     setViewState(v)
@@ -98,6 +99,59 @@ export function Timeline() {
       : (Object.keys(STATUS) as Status[]).map((k) => ({ key: k, name: STATUS[k].name, color: STATUS[k].color }))
   const colorOf = (t: Task) => (view === 'calendar' ? calendarColor(t) : STATUS[statusOf(t)].color)
 
+  /* calendar drag and drop: onto a day sets the date, onto «بلا تاريخ بعد» clears it */
+  // the ref is set the moment a drag starts, so drop targets can accept it at once; the state
+  // only drives the look (faded item, highlighted target), a render later
+  const dragRef = useRef<string | null>(null)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overUndated, setOverUndated] = useState(false)
+  const flipTimer = useRef<number | undefined>(undefined)
+  const stopFlip = () => {
+    window.clearTimeout(flipTimer.current)
+    flipTimer.current = undefined
+  }
+  const dragProps = (t: Task) => ({
+    draggable: true,
+    onDragStart: (e: RDragEvent) => {
+      e.dataTransfer.setData('text/plain', t.id)
+      e.dataTransfer.effectAllowed = 'move'
+      dragRef.current = t.id
+      // after the browser has taken its drag image, so the faded copy isn't what follows the pointer
+      window.setTimeout(() => setDragId(t.id), 0)
+    },
+    onDragEnd: () => {
+      dragRef.current = null
+      setDragId(null)
+      setOverUndated(false)
+      stopFlip()
+    },
+  })
+  const moveTo = (id: string, iso: string) => {
+    const t = tasks.find((x) => x.id === id)
+    if (!t || t.end === iso) return
+    patchLocal(id, { end: iso })
+    void run(() => api.updateTask(id, { end: iso }), iso ? `نُقل إلى ${fmtDate(parseDate(iso)!)}` : 'أُزيل التاريخ')
+  }
+  // holding an item over an arrow turns the month, so it can go to any date
+  const navDrag = (n: number) =>
+    view === 'calendar'
+      ? {
+          onDragOver: (e: RDragEvent) => {
+            if (!dragRef.current) return
+            e.preventDefault()
+            if (flipTimer.current) return
+            flipTimer.current = window.setTimeout(() => {
+              flipTimer.current = undefined
+              shift(n)
+            }, 600)
+          },
+          onDragLeave: stopFlip,
+          onDrop: (e: RDragEvent) => e.preventDefault(),
+        }
+      : {}
+  const dated = (id: string | null) => !!id && !!tasks.find((t) => t.id === id)?.end
+  const canClear = view === 'calendar' && dated(dragId)
+
   return (
     <Card padding="none" className="overflow-hidden">
       <div className="flex flex-col gap-3 border-b border-line-subtle p-4 md:flex-row md:items-center md:justify-between md:p-5">
@@ -105,19 +159,20 @@ export function Timeline() {
           <Tabs label="طريقة العرض" items={VIEWS} value={view} onChange={setView} />
           <p className="text-sm text-fg-tertiary">
             {view === 'timeline' ? 'كل بند يظهر في يومه، في مسار نوعه، ولونه حالته.' : 'كل بند في يومه من الشهر: الرئيس التنفيذي بالأحمر، والفعاليات بالأخضر، وغيرها بلون مستواه.'} اضغط على أي بند لفتحه.
+            {view === 'calendar' && <span className="hidden md:inline"> واسحبه إلى يوم آخر لتغيير تاريخه.</span>}
           </p>
         </div>
         {view === 'timeline' ? (
           <Tabs label="مدى الخط الزمني" items={RANGES} value={range} onChange={setRange} />
         ) : (
           <div className="flex items-center gap-1.5">
-            <button type="button" onClick={() => shift(-1)} aria-label="الشهر السابق" className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-line-subtle bg-surface text-fg-secondary hover:text-brand">
+            <button type="button" onClick={() => shift(-1)} {...navDrag(-1)} aria-label="الشهر السابق" className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-line-subtle bg-surface text-fg-secondary hover:text-brand">
               <ChevronRight size={18} aria-hidden />
             </button>
             <h3 className="min-w-[132px] text-center text-md font-medium" aria-live="polite">
               {fmtMonth(month)} {toArabicDigits(month.getFullYear())}
             </h3>
-            <button type="button" onClick={() => shift(1)} aria-label="الشهر التالي" className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-line-subtle bg-surface text-fg-secondary hover:text-brand">
+            <button type="button" onClick={() => shift(1)} {...navDrag(1)} aria-label="الشهر التالي" className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-line-subtle bg-surface text-fg-secondary hover:text-brand">
               <ChevronLeft size={18} aria-hidden />
             </button>
             {!thisMonth && (
@@ -129,28 +184,71 @@ export function Timeline() {
         )}
       </div>
 
-      {view === 'timeline' ? <TimelineChart tasks={tasks} range={range} now={now} openTask={openTask} /> : <MonthCalendar tasks={tasks} numbers={numbers} month={month} now={now} openTask={openTask} colorOf={colorOf} levelName={(t) => (t.label ? labelName(t.label) : 'بدون مستوى')} />}
+      {view === 'timeline' ? <TimelineChart tasks={tasks} range={range} now={now} openTask={openTask} /> : (
+        <MonthCalendar
+          tasks={tasks}
+          numbers={numbers}
+          month={month}
+          now={now}
+          openTask={openTask}
+          colorOf={colorOf}
+          levelName={(t) => (t.label ? labelName(t.label) : 'بدون مستوى')}
+          dragId={dragId}
+          dragging={() => dragRef.current}
+          dragProps={dragProps}
+          onDrop={moveTo}
+        />
+      )}
 
-      {/* no item is left out: the ones without a date yet sit in their own row */}
-      {undated.length > 0 && (
-        <div className="grid grid-cols-[112px_1fr] border-t border-line-subtle md:grid-cols-[140px_1fr]">
+      {/* no item is left out: the ones without a date yet sit in their own row (on the calendar,
+          they can be dragged onto a day, and a dated item dropped here loses its date) */}
+      {(undated.length > 0 || canClear) && (
+        <div
+          className={cn('grid grid-cols-[112px_1fr] border-t border-line-subtle md:grid-cols-[140px_1fr]', canClear && overUndated && 'bg-brand-soft ring-2 ring-inset ring-brand')}
+          {...(view === 'calendar'
+            ? {
+                onDragOver: (e: RDragEvent) => {
+                  if (!dated(dragRef.current)) return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  setOverUndated(true)
+                },
+                onDragLeave: (e: RDragEvent) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setOverUndated(false),
+                onDrop: (e: RDragEvent) => {
+                  const id = e.dataTransfer.getData('text/plain') || dragRef.current
+                  setOverUndated(false)
+                  if (!dated(id)) return
+                  e.preventDefault()
+                  moveTo(id!, '')
+                },
+              }
+            : {})}
+        >
           <div className="flex flex-col justify-center border-e border-line-subtle px-4 py-3">
             <span className="text-sm font-medium">بلا تاريخ بعد</span>
             <span className="text-2xs text-fg-tertiary">{items(undated.length)}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 p-3" aria-label="بنود بلا تاريخ">
+            {canClear && <span className="text-sm font-medium text-brand">أفلته هنا لإزالة التاريخ</span>}
             {undated.map((t) => (
-              <button
+              <div
                 key={t.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => openTask(t.id)}
-                title={`${t.title}\n${t.label ? labelName(t.label) : 'بدون مستوى'} · ${STATUS[statusOf(t)].name} · حدّد التاريخ ليظهر على الخط الزمني والتقويم`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-line-subtle bg-surface px-2.5 py-1 text-xs font-medium text-fg-primary hover:bg-brand-soft"
+                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(t.id))}
+                {...(view === 'calendar' ? dragProps(t) : {})}
+                title={`${t.title}\n${t.label ? labelName(t.label) : 'بدون مستوى'} · ${STATUS[statusOf(t)].name} · ${view === 'calendar' ? 'اسحبه إلى يوم في التقويم لتحديد تاريخه' : 'حدّد التاريخ ليظهر على الخط الزمني والتقويم'}`}
+                className={cn(
+                  'inline-flex cursor-pointer select-none items-center gap-1.5 rounded-full border border-line-subtle bg-surface px-2.5 py-1 text-xs font-medium text-fg-primary hover:bg-brand-soft',
+                  view === 'calendar' && 'md:cursor-grab',
+                  dragId === t.id && 'opacity-40',
+                )}
               >
                 <Dot color={colorOf(t)} size={10} />
                 {t.title}
                 {isReady(t) && <ReadyStar size={12} />}
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -309,8 +407,9 @@ const dayLong = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-arab', { weekday:
 const PER_DAY = 3
 
 /**
- * One month, weeks starting on Sunday. Each item sits on the day the VP set, coloured by its
- * status. On phones the grid becomes a list of the days that have something.
+ * One month, weeks starting on Sunday. Each item sits on the day the VP set, coloured by level;
+ * dragging it to another day changes the date. On phones the grid becomes a list of the days
+ * that have something.
  */
 function MonthCalendar({
   tasks,
@@ -320,6 +419,10 @@ function MonthCalendar({
   openTask,
   colorOf,
   levelName,
+  dragId,
+  dragging,
+  dragProps,
+  onDrop,
 }: {
   tasks: Task[]
   numbers: Map<string, number>
@@ -328,8 +431,34 @@ function MonthCalendar({
   openTask: (id: string) => void
   colorOf: (t: Task) => string
   levelName: (t: Task) => string
+  /** the item being dragged, if any (for the look) */
+  dragId: string | null
+  /** the item being dragged, known from the very start of the drag (for accepting drops) */
+  dragging: () => string | null
+  dragProps: (t: Task) => object
+  /** an item dropped on a day (YYYY-MM-DD) */
+  onDrop: (id: string, iso: string) => void
 }) {
   const [open, setOpen] = useState<string | null>(null)
+  // the day under a dragged item
+  const [over, setOver] = useState<string | null>(null)
+  const target = dragId ? over : null
+  const dropProps = (iso: string) => ({
+    onDragOver: (e: RDragEvent) => {
+      if (!dragging()) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      if (over !== iso) setOver(iso)
+    },
+    onDragLeave: (e: RDragEvent) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setOver((o) => (o === iso ? null : o)),
+    onDrop: (e: RDragEvent) => {
+      const id = e.dataTransfer.getData('text/plain') || dragging()
+      setOver(null)
+      if (!id) return
+      e.preventDefault()
+      onDrop(id, iso)
+    },
+  })
   const byDay = useMemo(() => {
     const m = new Map<string, Task[]>()
     for (const t of tasks) if (t.end && parseDate(t.end)) m.set(t.end, [...(m.get(t.end) ?? []), t])
@@ -344,21 +473,29 @@ function MonthCalendar({
   const todayIso = isoDate(now)
   const busy = days.filter((d) => inMonth(d) && byDay.has(isoDate(d)))
 
-  // a tint of the level colour, with the full colour on the start edge
-  const chip = (t: Task) => {
+  // a tint of the level colour, with the full colour on the start edge; in the grid it can be
+  // dragged to another day (a div, since browsers won't drag a <button> everywhere)
+  const chip = (t: Task, draggable: boolean) => {
     const color = colorOf(t)
     return (
-      <button
+      <div
         key={t.id}
-        type="button"
+        role="button"
+        tabIndex={0}
         onClick={() => openTask(t.id)}
-        title={`${toArabicDigits(numbers.get(t.id)!)}. ${t.title} (${t.kind ? ITEM_KINDS[t.kind] : 'غير مصنّف'})\n${levelName(t)} · ${STATUS[statusOf(t)].name}`}
-        className="flex w-full min-w-0 items-center gap-1.5 rounded border-s-[3px] px-1.5 py-1 text-start text-xs font-medium text-fg-primary hover:brightness-95"
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(t.id))}
+        {...(draggable ? dragProps(t) : {})}
+        title={`${toArabicDigits(numbers.get(t.id)!)}. ${t.title} (${t.kind ? ITEM_KINDS[t.kind] : 'غير مصنّف'})\n${levelName(t)} · ${STATUS[statusOf(t)].name}${draggable ? '\nاسحبه إلى يوم آخر لتغيير تاريخه' : ''}`}
+        className={cn(
+          'flex w-full min-w-0 cursor-pointer select-none items-center gap-1.5 rounded border-s-[3px] px-1.5 py-1 text-start text-xs font-medium text-fg-primary hover:brightness-95',
+          draggable && 'cursor-grab active:cursor-grabbing',
+          dragId === t.id && 'opacity-40',
+        )}
         style={{ borderInlineStartColor: color, background: `color-mix(in srgb, ${color} 14%, white)` }}
       >
         <span className="truncate">{t.title}</span>
         {isReady(t) && <ReadyStar size={12} />}
-      </button>
+      </div>
     )
   }
 
@@ -383,9 +520,12 @@ function MonthCalendar({
               <div
                 key={iso}
                 aria-label={dayLong.format(d)}
+                data-day={iso}
+                {...dropProps(iso)}
                 className={cn(
-                  'flex min-h-[116px] min-w-0 flex-col gap-1 border-b border-e border-line-subtle p-1.5 [&:nth-child(7n)]:border-e-0',
+                  'flex min-h-[116px] min-w-0 flex-col gap-1 border-b border-e border-line-subtle p-1.5 transition-colors duration-fast [&:nth-child(7n)]:border-e-0',
                   !inMonth(d) ? 'bg-neutral-25' : weekend && 'bg-neutral-25/60',
+                  target === iso && '!bg-brand-soft ring-2 ring-inset ring-brand',
                 )}
               >
                 <span
@@ -397,7 +537,7 @@ function MonthCalendar({
                 >
                   {toArabicDigits(d.getDate())}
                 </span>
-                {shown.map(chip)}
+                {shown.map((t) => chip(t, true))}
                 {list.length > PER_DAY && (
                   <button type="button" onClick={() => setOpen(open === iso ? null : iso)} className="px-1.5 text-start text-2xs font-medium text-brand hover:underline">
                     {open === iso ? 'عرض أقل' : `+${toArabicDigits(list.length - PER_DAY)} أخرى`}
@@ -417,7 +557,7 @@ function MonthCalendar({
             <li key={iso} className="flex gap-3 px-4 py-3">
               <span className={cn('w-24 shrink-0 text-xs', iso === todayIso ? 'font-bold text-fg-primary' : 'font-medium text-fg-secondary')}>{dayLong.format(d)}</span>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                {byDay.get(iso)!.map(chip)}
+                {byDay.get(iso)!.map((t) => chip(t, false))}
               </div>
             </li>
           )
