@@ -63,7 +63,7 @@ function Group({ title, note, tone, children }: { title: string; note: string; t
 
 /** Drawer to add or edit one task: one form for every field (the booklet's Sheet). */
 export function TaskSheet() {
-  const { state, editing, closeTask, isAdmin, run, labels } = useBoardCtx()
+  const { state, editing, closeTask, isAdmin, canEdit, run, labels } = useBoardCtx()
   const task = editing.id ? state?.tasks.find((t) => t.id === editing.id) : undefined
   const [f, setF] = useState<Form>(blank)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -121,7 +121,7 @@ export function TaskSheet() {
         <div className="flex items-center gap-2">
           <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: st.color }} />
           <h2 id="task-sheet-title" className="truncate text-lg font-medium">
-            {task ? 'تعديل' : 'مهمة أو فعالية جديدة'}
+            {!task ? 'مهمة أو فعالية جديدة' : canEdit ? 'تعديل' : 'تفاصيل البند'}
           </h2>
           {isReady(current) && <ReadyStar size={16} />}
           {task?.draft && (
@@ -133,6 +133,7 @@ export function TaskSheet() {
       }
     >
       <form onSubmit={submit} className="mx-auto flex max-w-3xl flex-col gap-5 p-5 md:p-8">
+        <fieldset disabled={!canEdit} className="flex min-w-0 flex-col gap-5">
         {task?.draft && (
           <p className="rounded-lg border border-warning-100 bg-warning-50 px-4 py-3 text-sm text-warning-700">
             هذا البند بانتظار موافقة نائب الرئيس. يُعتمد عند تغيير أيٍّ من قيم نائب الرئيس، ويستطيع المشرف اعتماده كما هو بزر «تأكيد القيم».
@@ -268,7 +269,16 @@ export function TaskSheet() {
             آخر تعديل: {task.updatedBy} · {fmtTime(task.updatedAt)}
           </p>
         )}
+        </fieldset>
 
+        {!canEdit ? (
+          <div className="sticky bottom-0 -mx-5 flex flex-wrap items-center gap-3 border-t border-line-subtle bg-page px-5 py-4 md:-mx-8 md:px-8">
+            <Button size="lg" onClick={closeTask}>
+              إغلاق
+            </Button>
+            <span className="text-sm text-fg-tertiary">للعرض فقط. سجّل الدخول للتعديل.</span>
+          </div>
+        ) : (
         <div className="sticky bottom-0 -mx-5 flex flex-wrap items-center gap-3 border-t border-line-subtle bg-page px-5 py-4 md:-mx-8 md:px-8">
           <Button type="submit" size="lg" disabled={saving}>
             {task ? 'حفظ' : 'إضافة'}
@@ -301,6 +311,7 @@ export function TaskSheet() {
             </div>
           )}
         </div>
+        )}
       </form>
     </Sheet>
   )

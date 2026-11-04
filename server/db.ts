@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { AuditEntry, EventItem, Settings, Task } from '../src/lib/types.ts'
+import type { AuditEntry, EventItem, Role, Settings, Task, UserInfo } from '../src/lib/types.ts'
 import { AWARD_TITLES, AWARDS_OCT31, realItems, SAMPLE_TITLES, seed } from './seed.ts'
 
 const FILE = process.env.DATABASE_PATH ?? (process.env.NODE_ENV === 'production' ? '/data/vp.db' : './data/vp.db')
@@ -29,6 +29,11 @@ db.exec(`
     action TEXT NOT NULL, field TEXT NOT NULL DEFAULT '', old TEXT, new TEXT, by TEXT NOT NULL, at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS audit_at ON audit(at DESC);
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'editor',
+    pass TEXT NOT NULL, token_version INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL, last_login_at INTEGER
+  );
 `)
 
 // databases from before items had a type or a status: add the columns in place
@@ -328,5 +333,55 @@ migrate('item-positions', () => {
   const set = db.prepare('UPDATE tasks SET position = ? WHERE id = ?')
   rows.forEach((r, i) => set.run(i + 1, r.id))
 })
+
+/* ---------- users (personal accounts; the password hash and session version stay here) ---------- */
+export interface UserRow extends UserInfo {
+  pass: string
+  tokenVersion: number
+}
+const toUser = (r: Row): UserRow => ({
+  id: r.id as string,
+  username: r.username as string,
+  name: r.name as string,
+  role: r.role as Role,
+  active: !!r.active,
+  createdAt: r.created_at as number,
+  lastLoginAt: (r.last_login_at as number | null) ?? null,
+  pass: r.pass as string,
+  tokenVersion: r.token_version as number,
+})
+/** Without the password hash, for the admin's list. */
+export const publicUser = (u: UserRow): UserInfo => ({ id: u.id, username: u.username, name: u.name, role: u.role, active: u.active, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt })
+export const listUsers = (): UserRow[] => (db.prepare('SELECT * FROM users ORDER BY created_at').all() as Row[]).map(toUser)
+export const getUser = (id: string): UserRow | undefined => {
+  const r = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as Row | undefined
+  return r && toUser(r)
+}
+export const findUser = (username: string): UserRow | undefined => {
+  const r = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as Row | undefined
+  return r && toUser(r)
+}
+export function insertUser(u: { username: string; name: string; role: Role; pass: string }): UserRow {
+  const id = randomUUID()
+  db.prepare('INSERT INTO users (id, username, name, role, pass, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, u.username, u.name, u.role, u.pass, Date.now())
+  return getUser(id)!
+}
+/** A new password or a disabled account bumps the version, which ends the account's sessions. */
+export function updateUser(id: string, patch: { name?: string; role?: Role; active?: boolean; pass?: string; bumpVersion?: boolean; lastLoginAt?: number }) {
+  const sets: string[] = []
+  const params: unknown[] = []
+  const set = (sql: string, v: unknown) => {
+    sets.push(sql)
+    params.push(v)
+  }
+  if (patch.name !== undefined) set('name = ?', patch.name)
+  if (patch.role !== undefined) set('role = ?', patch.role)
+  if (patch.active !== undefined) set('active = ?', Number(patch.active))
+  if (patch.pass !== undefined) set('pass = ?', patch.pass)
+  if (patch.lastLoginAt !== undefined) set('last_login_at = ?', patch.lastLoginAt)
+  if (patch.bumpVersion) sets.push('token_version = token_version + 1')
+  if (sets.length) db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...params, id)
+}
+export const deleteUser = (id: string) => db.prepare('DELETE FROM users WHERE id = ?').run(id)
 
 export const DB_FILE = FILE

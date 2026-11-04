@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { LogIn, LogOut, ShieldCheck } from 'lucide-react'
+import { Eye, LogIn, LogOut, ShieldCheck, UserRound } from 'lucide-react'
 import logoWhite from '@/assets/brand/logos/logo-white-horizontal-ar.svg'
 import logoColor from '@/assets/brand/logos/logo-colorful-horizontal-ar.svg'
 import { cn } from '@/lib/cn'
@@ -7,8 +7,8 @@ import { useBoardCtx } from '@/lib/board'
 
 export const NAV = [
   { id: 'matrix', name: 'المصفوفة' },
-  { id: 'register', name: 'المهام والفعاليات' },
   { id: 'timeline', name: 'الخط الزمني' },
+  { id: 'register', name: 'المهام والفعاليات' },
   { id: 'activity', name: 'سجل التعديلات', admin: true },
 ]
 
@@ -48,7 +48,7 @@ function ScrollProgress() {
  */
 export function Header({ onSignIn, onSignOut }: { onSignIn: () => void; onSignOut: () => void }) {
   const scrolled = useScrolled(8)
-  const { isAdmin, conn } = useBoardCtx()
+  const { isAdmin, user, conn } = useBoardCtx()
   // a working tool, not a story: the bar stays navy (the booklet's dark-section glass) from the start
   const onDark = true
 
@@ -94,22 +94,28 @@ export function Header({ onSignIn, onSignOut }: { onSignIn: () => void; onSignOu
             <span className={cn('h-2 w-2 rounded-full', conn === 'live' ? 'bg-teal-400' : conn === 'loading' ? 'bg-neutral-300' : 'bg-danger-500')} />
             {conn === 'live' ? 'مباشر' : conn === 'loading' ? 'جارٍ الاتصال' : 'غير متصل'}
           </span>
-          {isAdmin ? (
+          {user ? (
             <button
               type="button"
               onClick={onSignOut}
+              title="تسجيل الخروج"
               className={cn(
-                'inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors duration-fast',
+                'inline-flex h-9 max-w-[220px] items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors duration-fast',
                 onDark ? 'border-white/30 text-white hover:bg-white/10' : 'border-line-subtle text-fg-primary hover:border-blue-200 hover:text-brand',
               )}
             >
-              <ShieldCheck size={16} aria-hidden className={onDark ? 'text-teal-300' : 'text-teal-600'} />
-              <span>مشرف</span>
-              <span aria-hidden className="h-3 w-px bg-current opacity-30" />
-              <LogOut size={15} aria-hidden />
+              {isAdmin ? <ShieldCheck size={16} aria-hidden className="shrink-0 text-teal-300" /> : <UserRound size={16} aria-hidden className="shrink-0 text-teal-300" />}
+              <span className="truncate">{user.name}</span>
+              <span aria-hidden className="h-3 w-px shrink-0 bg-current opacity-30" />
+              <LogOut size={15} aria-hidden className="shrink-0" />
               <span className="sr-only">تسجيل الخروج</span>
             </button>
           ) : (
+            <>
+            <span className="hidden items-center gap-1.5 rounded-full border border-white/25 px-2.5 py-1 text-xs text-white/85 sm:inline-flex">
+              <Eye size={13} aria-hidden />
+              للعرض فقط
+            </span>
             <button
               type="button"
               onClick={onSignIn}
@@ -119,8 +125,9 @@ export function Header({ onSignIn, onSignOut }: { onSignIn: () => void; onSignOu
               )}
             >
               <LogIn size={16} aria-hidden />
-              دخول المشرف
+              تسجيل الدخول
             </button>
+            </>
           )}
         </div>
       </div>

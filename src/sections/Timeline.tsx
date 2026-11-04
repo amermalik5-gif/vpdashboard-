@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type DragEvent as RDragEvent } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileDown } from 'lucide-react'
 import { ReadyStar } from '@/components/ReadyStar'
 import { Card } from '@/components/ui/Card'
 import { Tabs } from '@/components/ui/Tabs'
@@ -25,6 +25,21 @@ const savedView = (): View => {
   }
 }
 
+/** The calendar shows one month, or a whole year (January–December). */
+type Scope = 'month' | 'year'
+const SCOPES: { id: Scope; label: string }[] = [
+  { id: 'month', label: 'شهر' },
+  { id: 'year', label: 'سنة' },
+]
+const SCOPE_KEY = 'vp:calendar-scope'
+const savedScope = (): Scope => {
+  try {
+    return localStorage.getItem(SCOPE_KEY) === 'year' ? 'year' : 'month'
+  } catch {
+    return 'month'
+  }
+}
+
 type Range = '3' | '6' | '12'
 const RANGES: { id: Range; label: string }[] = [
   { id: '3', label: '٣ أشهر' },
@@ -46,7 +61,9 @@ const LANES: { id: ItemKind; name: string }[] = [
 /** «بند واحد · بندان · ٣ بنود · ١١ بندًا» */
 const items = (n: number) => (n === 1 ? 'بند واحد' : n === 2 ? 'بندان' : n <= 10 ? `${toArabicDigits(n)} بنود` : `${toArabicDigits(n)} بندًا`)
 
-const Dot = ({ color, size = 14 }: { color: string; size?: number }) => <span aria-hidden className="shrink-0 rounded-full" style={{ width: size, height: size, background: color }} />
+const Dot = ({ color, size = 14 }: { color: string; size?: number }) => (
+  <span aria-hidden className="shrink-0 rounded-full" style={{ width: size, height: size, background: color }} />
+)
 
 /** The month the timeline opens on: this one, or the next when this one is nearly over. */
 function firstMonth(now: Date) {
@@ -57,7 +74,7 @@ function firstMonth(now: Date) {
 
 /** The dated items, seen as a timeline or as a month calendar, plus the ones without a date yet. */
 export function Timeline() {
-  const { state, openTask, labels, labelName, run, patchLocal } = useBoardCtx()
+  const { state, openTask, labels, labelName, run, patchLocal, canEdit, toast } = useBoardCtx()
   const [view, setViewState] = useState<View>(savedView)
   const setView = (v: View) => {
     setViewState(v)
@@ -70,8 +87,20 @@ export function Timeline() {
   const [range, setRange] = useState<Range>('6')
   const now = today()
   const [month, setMonth] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1))
-  const shift = (n: number) => setMonth((m) => new Date(m.getFullYear(), m.getMonth() + n, 1))
-  const thisMonth = month.getFullYear() === now.getFullYear() && month.getMonth() === now.getMonth()
+  const [scope, setScopeState] = useState<Scope>(savedScope)
+  const setScope = (v: Scope) => {
+    setScopeState(v)
+    try {
+      localStorage.setItem(SCOPE_KEY, v)
+    } catch {
+      /* the choice just isn't remembered */
+    }
+  }
+  const year = month.getFullYear()
+  // the arrows move a month, or a year in the year view
+  const shift = (n: number) => setMonth((m) => new Date(m.getFullYear(), m.getMonth() + (scope === 'year' ? 12 * n : n), 1))
+  const thisPeriod = year === now.getFullYear() && (scope === 'year' || month.getMonth() === now.getMonth())
+  const period = scope === 'year' ? toArabicDigits(year) : `${fmtMonth(month)} ${toArabicDigits(year)}`
 
   const tasks = state?.tasks ?? []
   const numbers = useMemo(() => itemNumbers(tasks), [tasks])
@@ -110,8 +139,9 @@ export function Timeline() {
     window.clearTimeout(flipTimer.current)
     flipTimer.current = undefined
   }
+  // visitors can only view: nothing to drag
   const dragProps = (t: Task) => ({
-    draggable: true,
+    draggable: canEdit,
     onDragStart: (e: RDragEvent) => {
       e.dataTransfer.setData('text/plain', t.id)
       e.dataTransfer.effectAllowed = 'move'
@@ -149,42 +179,123 @@ export function Timeline() {
           onDrop: (e: RDragEvent) => e.preventDefault(),
         }
       : {}
+  const [exporting, setExporting] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
+  const exportPdf = async () => {
+    setExporting(true)
+    try {
+      // the copy renders on the next frames; the libraries load only now, the first time
+      const [{ toJpeg }, { jsPDF }] = await Promise.all([import('html-to-image'), import('jspdf'), new Promise((r) => setTimeout(r, 60))])
+      await document.fonts.ready
+      const node = exportRef.current
+      if (!node) throw new Error('no export node')
+      // JPEG keeps the file small (a few hundred KB) while staying sharp at twice the resolution
+      const img = await toJpeg(node, { pixelRatio: 2, quality: 0.92, backgroundColor: '#ffffff' })
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      const [W, H, M] = [297, 210, 8]
+      const { width, height } = node.getBoundingClientRect()
+      const k = Math.min((W - 2 * M) / width, (H - 2 * M) / height)
+      pdf.addImage(img, 'JPEG', (W - width * k) / 2, M, width * k, height * k)
+      // a Latin file name: some systems drop an Arabic one and save a nameless «download»
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(pdf.output('blob'))
+      a.download = scope === 'year' ? `vp-calendar-${year}.pdf` : `vp-calendar-${year}-${String(month.getMonth() + 1).padStart(2, '0')}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
+    } catch {
+      toast('تعذّر تصدير الملف. حاول مرة أخرى.', 'error')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const dated = (id: string | null) => !!id && !!tasks.find((t) => t.id === id)?.end
   const canClear = view === 'calendar' && dated(dragId)
 
   return (
     <Card padding="none" className="overflow-hidden">
-      <div className="flex flex-col gap-3 border-b border-line-subtle p-4 md:flex-row md:items-center md:justify-between md:p-5">
+      {/* the calendar has more controls: they get their own row */}
+      <div
+        className={cn('flex flex-col gap-3 border-b border-line-subtle p-4 md:p-5', view === 'timeline' && 'md:flex-row md:items-center md:justify-between')}
+      >
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-4">
-          <Tabs label="طريقة العرض" items={VIEWS} value={view} onChange={setView} />
+          <Tabs label="طريقة العرض" items={VIEWS} value={view} onChange={setView} className="shrink-0 self-start md:self-auto" />
           <p className="text-sm text-fg-tertiary">
-            {view === 'timeline' ? 'كل بند يظهر في يومه، في مسار نوعه، ولونه حالته.' : 'كل بند في يومه من الشهر: الرئيس التنفيذي بالأحمر، والفعاليات بالأخضر، وغيرها بلون مستواه.'} اضغط على أي بند لفتحه.
-            {view === 'calendar' && <span className="hidden md:inline"> واسحبه إلى يوم آخر لتغيير تاريخه.</span>}
+            {view === 'timeline'
+              ? 'كل بند يظهر في يومه، في مسار نوعه، ولونه حالته.'
+              : 'كل بند في يومه من الشهر: الرئيس التنفيذي بالأحمر، والفعاليات بالأخضر، وغيرها بلون مستواه.'}{' '}
+            اضغط على أي بند لفتحه.
+            {view === 'calendar' && scope === 'month' && canEdit && <span className="hidden md:inline"> واسحبه إلى يوم آخر لتغيير تاريخه.</span>}
           </p>
         </div>
         {view === 'timeline' ? (
           <Tabs label="مدى الخط الزمني" items={RANGES} value={range} onChange={setRange} />
         ) : (
-          <div className="flex items-center gap-1.5">
-            <button type="button" onClick={() => shift(-1)} {...navDrag(-1)} aria-label="الشهر السابق" className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-line-subtle bg-surface text-fg-secondary hover:text-brand">
-              <ChevronRight size={18} aria-hidden />
-            </button>
-            <h3 className="min-w-[132px] text-center text-md font-medium" aria-live="polite">
-              {fmtMonth(month)} {toArabicDigits(month.getFullYear())}
-            </h3>
-            <button type="button" onClick={() => shift(1)} {...navDrag(1)} aria-label="الشهر التالي" className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-line-subtle bg-surface text-fg-secondary hover:text-brand">
-              <ChevronLeft size={18} aria-hidden />
-            </button>
-            {!thisMonth && (
-              <button type="button" onClick={() => setMonth(new Date(now.getFullYear(), now.getMonth(), 1))} className="ms-1 h-10 rounded-md px-3 text-sm font-medium text-brand hover:bg-brand-soft">
-                اليوم
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Tabs label="مدى التقويم" items={SCOPES} value={scope} onChange={setScope} className="me-1" />
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => shift(-1)}
+                {...navDrag(-1)}
+                aria-label={scope === 'year' ? 'السنة السابقة' : 'الشهر السابق'}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-line-subtle bg-surface text-fg-secondary hover:text-brand"
+              >
+                <ChevronRight size={18} aria-hidden />
               </button>
-            )}
+              <h3 className="min-w-[132px] text-center text-md font-medium" aria-live="polite">
+                {period}
+              </h3>
+              <button
+                type="button"
+                onClick={() => shift(1)}
+                {...navDrag(1)}
+                aria-label={scope === 'year' ? 'السنة التالية' : 'الشهر التالي'}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-line-subtle bg-surface text-fg-secondary hover:text-brand"
+              >
+                <ChevronLeft size={18} aria-hidden />
+              </button>
+              {!thisPeriod && (
+                <button
+                  type="button"
+                  onClick={() => setMonth(new Date(now.getFullYear(), now.getMonth(), 1))}
+                  className="ms-1 h-10 rounded-md px-3 text-sm font-medium text-brand hover:bg-brand-soft"
+                >
+                  اليوم
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => void exportPdf()}
+              disabled={exporting}
+              className="ms-auto inline-flex h-10 items-center gap-1.5 rounded-md border border-line-subtle bg-surface px-3 text-sm font-medium text-brand hover:bg-brand-soft disabled:opacity-60"
+            >
+              <FileDown size={16} aria-hidden />
+              {exporting ? 'جارٍ التصدير…' : 'تصدير PDF'}
+            </button>
           </div>
         )}
       </div>
 
-      {view === 'timeline' ? <TimelineChart tasks={tasks} range={range} now={now} openTask={openTask} /> : (
+      {view === 'timeline' ? (
+        <TimelineChart tasks={tasks} range={range} now={now} openTask={openTask} />
+      ) : scope === 'year' ? (
+        <YearCalendar
+          tasks={tasks}
+          numbers={numbers}
+          year={year}
+          now={now}
+          openTask={openTask}
+          colorOf={colorOf}
+          onOpenMonth={(m) => {
+            setMonth(new Date(year, m, 1))
+            setScope('month')
+          }}
+        />
+      ) : (
         <MonthCalendar
           tasks={tasks}
           numbers={numbers}
@@ -196,6 +307,7 @@ export function Timeline() {
           dragId={dragId}
           dragging={() => dragRef.current}
           dragProps={dragProps}
+          canDrag={canEdit}
           onDrop={moveTo}
         />
       )}
@@ -204,7 +316,10 @@ export function Timeline() {
           they can be dragged onto a day, and a dated item dropped here loses its date) */}
       {(undated.length > 0 || canClear) && (
         <div
-          className={cn('grid grid-cols-[112px_1fr] border-t border-line-subtle md:grid-cols-[140px_1fr]', canClear && overUndated && 'bg-brand-soft ring-2 ring-inset ring-brand')}
+          className={cn(
+            'grid grid-cols-[112px_1fr] border-t border-line-subtle md:grid-cols-[140px_1fr]',
+            canClear && overUndated && 'bg-brand-soft ring-2 ring-inset ring-brand',
+          )}
           {...(view === 'calendar'
             ? {
                 onDragOver: (e: RDragEvent) => {
@@ -238,10 +353,10 @@ export function Timeline() {
                 onClick={() => openTask(t.id)}
                 onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(t.id))}
                 {...(view === 'calendar' ? dragProps(t) : {})}
-                title={`${t.title}\n${t.label ? labelName(t.label) : 'بدون مستوى'} · ${STATUS[statusOf(t)].name} · ${view === 'calendar' ? 'اسحبه إلى يوم في التقويم لتحديد تاريخه' : 'حدّد التاريخ ليظهر على الخط الزمني والتقويم'}`}
+                title={`${t.title}\n${t.label ? labelName(t.label) : 'بدون مستوى'} · ${STATUS[statusOf(t)].name} · ${view === 'calendar' && canEdit ? 'اسحبه إلى يوم في التقويم لتحديد تاريخه' : 'حدّد التاريخ ليظهر على الخط الزمني والتقويم'}`}
                 className={cn(
                   'inline-flex cursor-pointer select-none items-center gap-1.5 rounded-full border border-line-subtle bg-surface px-2.5 py-1 text-xs font-medium text-fg-primary hover:bg-brand-soft',
-                  view === 'calendar' && 'md:cursor-grab',
+                  view === 'calendar' && canEdit && 'md:cursor-grab',
                   dragId === t.id && 'opacity-40',
                 )}
               >
@@ -254,8 +369,60 @@ export function Timeline() {
         </div>
       )}
 
+      {/* the copy the PDF is made from: always the desktop grid, whatever the screen */}
+      {exporting && (
+        <div aria-hidden className="pointer-events-none fixed top-0" style={{ left: -20000, width: 1400 }}>
+          <div ref={exportRef} dir="rtl" className="bg-white p-6 text-fg-primary">
+            <div className="mb-4 flex items-end justify-between gap-4 border-b border-line-subtle pb-3">
+              <div>
+                <p className="text-sm text-fg-tertiary">لوحة أولويات نائب الرئيس</p>
+                <h2 className="text-2xl font-medium">تقويم {period}</h2>
+              </div>
+              <p className="text-sm text-fg-tertiary">صُدِّر في {fmtDate(now)}</p>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-line-subtle">
+              {scope === 'year' ? (
+                <YearCalendar tasks={tasks} numbers={numbers} year={year} now={now} openTask={() => {}} colorOf={colorOf} onOpenMonth={() => {}} forPrint />
+              ) : (
+                <MonthCalendar
+                  tasks={tasks}
+                  numbers={numbers}
+                  month={month}
+                  now={now}
+                  openTask={() => {}}
+                  colorOf={colorOf}
+                  levelName={(t) => (t.label ? labelName(t.label) : 'بدون مستوى')}
+                  dragId={null}
+                  dragging={() => null}
+                  dragProps={() => ({})}
+                  canDrag={false}
+                  onDrop={() => {}}
+                  forPrint
+                />
+              )}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-fg-secondary">
+              <span className="font-medium text-fg-primary">اللون:</span>
+              {legend.map((l) => (
+                <span key={l.key} className="inline-flex items-center gap-1.5">
+                  <Dot color={l.color} size={10} />
+                  {l.name}
+                </span>
+              ))}
+              <span className="inline-flex items-center gap-1.5">
+                <ReadyStar size={12} />
+                جاهز للإطلاق
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* legend: colours only (status on the timeline, level on the calendar) */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line-subtle px-4 py-3 text-xs text-fg-secondary md:px-5" aria-label="دليل الألوان">
+      <div
+        className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line-subtle px-4 py-3 text-xs text-fg-secondary md:px-5"
+        aria-label="دليل الألوان"
+      >
         {view === 'calendar' && <span className="font-medium text-fg-primary">اللون:</span>}
         {legend.map((l) => (
           <span key={l.key} className="inline-flex items-center gap-1.5">
@@ -268,7 +435,11 @@ export function Timeline() {
           جاهز للإطلاق
         </span>
         <span className="inline-flex items-center gap-1.5">
-          {view === 'timeline' ? <span className="h-3 border-s-[1.5px] border-dashed border-gold-500" /> : <span className="h-3 w-3 rounded-full border-2 border-fg-primary" />}
+          {view === 'timeline' ? (
+            <span className="h-3 border-s-[1.5px] border-dashed border-gold-500" />
+          ) : (
+            <span className="h-3 w-3 rounded-full border-2 border-fg-primary" />
+          )}
           اليوم
         </span>
       </div>
@@ -296,11 +467,13 @@ function TimelineChart({ tasks, range, now, openTask }: { tasks: Task[]; range: 
   const lanes = useMemo(() => {
     // one point per item, on the day the VP set.
     // Overdue items dated before the range stay visible, pinned at the range's start.
-    const items: Item[] = tasks.filter((t) => !!t.end).flatMap((t) => {
-      const [, day] = span(t)
-      const s = isOverdue(t, now) && day < t0 ? t0 : day
-      return s >= t0 && s < t1 ? [{ s, t }] : []
-    })
+    const items: Item[] = tasks
+      .filter((t) => !!t.end)
+      .flatMap((t) => {
+        const [, day] = span(t)
+        const s = isOverdue(t, now) && day < t0 ? t0 : day
+        return s >= t0 && s < t1 ? [{ s, t }] : []
+      })
     // only lanes with something in this period, so the chart stays uncluttered
     return LANES.map((l) => ({ ...l, items: items.filter((o) => (o.t.kind in ITEM_KINDS ? o.t.kind : '') === l.id) }))
       .filter((l) => l.items.length)
@@ -312,94 +485,104 @@ function TimelineChart({ tasks, range, now, openTask }: { tasks: Task[]; range: 
   const showToday = now >= t0 && now < t1
 
   return (
-      <div className="overflow-x-auto">
-        <div className="min-w-[1020px]">
-          {/* month header */}
-          <div className="grid grid-cols-[140px_1fr] border-b border-line-subtle bg-neutral-25">
-            <div className="sticky start-0 z-20 bg-neutral-25" />
-            <div className="relative h-12">
-              {months.map((m) => {
-                const s = pos(m)
-                const e = pos(new Date(m.getFullYear(), m.getMonth() + 1, 1))
-                const q = m.getMonth() % 3 === 0
-                return (
-                  <div key={m.toISOString()} className="absolute inset-y-0" style={{ insetInlineStart: `${s}%`, width: `${e - s}%` }}>
-                    {q && (
-                      <span className="absolute start-1.5 top-1 font-ui text-2xs font-semibold text-brand">
-                        <bdi dir="ltr">Q{m.getMonth() / 3 + 1}</bdi> {toArabicDigits(m.getFullYear())}
-                      </span>
-                    )}
-                    <span className="absolute inset-x-0 bottom-1.5 text-center text-sm font-medium text-fg-secondary">{fmtMonth(m)}</span>
-                  </div>
-                )
-              })}
+    <div className="overflow-x-auto">
+      <div className="min-w-[1020px]">
+        {/* month header */}
+        <div className="grid grid-cols-[140px_1fr] border-b border-line-subtle bg-neutral-25">
+          <div className="sticky start-0 z-20 bg-neutral-25" />
+          <div className="relative h-12">
+            {months.map((m) => {
+              const s = pos(m)
+              const e = pos(new Date(m.getFullYear(), m.getMonth() + 1, 1))
+              const q = m.getMonth() % 3 === 0
+              return (
+                <div key={m.toISOString()} className="absolute inset-y-0" style={{ insetInlineStart: `${s}%`, width: `${e - s}%` }}>
+                  {q && (
+                    <span className="absolute start-1.5 top-1 font-ui text-2xs font-semibold text-brand">
+                      <bdi dir="ltr">Q{m.getMonth() / 3 + 1}</bdi> {toArabicDigits(m.getFullYear())}
+                    </span>
+                  )}
+                  <span className="absolute inset-x-0 bottom-1.5 text-center text-sm font-medium text-fg-secondary">{fmtMonth(m)}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {!lanes.length && <p className="px-5 py-6 text-sm text-fg-muted">لا شيء في هذه الفترة.</p>}
+        {lanes.map((lane) => (
+          <div key={lane.id || '__none'} className="grid grid-cols-[140px_1fr] border-b border-line-subtle last:border-b-0">
+            <div className="sticky start-0 z-20 flex items-center border-e border-line-subtle bg-surface px-4 text-sm font-medium">{lane.name}</div>
+            <div className="relative py-2" style={{ minHeight: Math.max(1, lane.rows.length) * ROW_H + 16 }}>
+              {/* month and quarter lines */}
+              {months.map((m) => (
+                <span
+                  key={m.toISOString()}
+                  aria-hidden
+                  className={
+                    m.getMonth() % 3 === 0 ? 'absolute inset-y-0 border-s border-neutral-300' : 'absolute inset-y-0 border-s border-dashed border-neutral-200'
+                  }
+                  style={{ insetInlineStart: `${pos(m)}%` }}
+                />
+              ))}
+              {lane.rows.map((row, ri) =>
+                row.map((o) => {
+                  const top = 8 + ri * ROW_H
+                  const t = o.t
+                  const st = STATUS[statusOf(t)]
+                  const kindName = t.kind ? ITEM_KINDS[t.kind] : 'غير مصنّف'
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => openTask(t.id)}
+                      className={cn(
+                        'absolute flex items-center gap-1.5 whitespace-nowrap rounded-full py-0.5 text-xs font-medium text-fg-primary hover:bg-brand-soft',
+                        flip(o.s) ? 'flex-row-reverse ps-2' : 'pe-2',
+                      )}
+                      style={{
+                        ...(flip(o.s) ? { insetInlineEnd: `calc(${100 - pos(o.s)}% - 7px)` } : { insetInlineStart: `calc(${pos(o.s)}% - 7px)` }),
+                        top: top + 4,
+                      }}
+                      title={`${t.title} (${kindName})\nالتاريخ: ${fmtDate(span(t)[1])}\n${st.name}`}
+                    >
+                      <Dot color={st.color} />
+                      {t.title}
+                      {isReady(t) && <ReadyStar size={13} />}
+                      <span className="font-normal text-fg-tertiary">{fmtDay(span(t)[1])}</span>
+                      {isOverdue(t, now) && <span className="rounded-full bg-danger-50 px-1.5 text-2xs font-medium text-danger-700">متأخرة</span>}
+                    </button>
+                  )
+                }),
+              )}
+              {showToday && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 z-10 border-s-[1.5px] border-dashed border-gold-500"
+                  style={{ insetInlineStart: `${nowPos}%` }}
+                />
+              )}
             </div>
           </div>
-
-          {!lanes.length && <p className="px-5 py-6 text-sm text-fg-muted">لا شيء في هذه الفترة.</p>}
-          {lanes.map((lane) => (
-            <div key={lane.id || '__none'} className="grid grid-cols-[140px_1fr] border-b border-line-subtle last:border-b-0">
-              <div className="sticky start-0 z-20 flex items-center border-e border-line-subtle bg-surface px-4 text-sm font-medium">{lane.name}</div>
-              <div className="relative py-2" style={{ minHeight: Math.max(1, lane.rows.length) * ROW_H + 16 }}>
-                {/* month and quarter lines */}
-                {months.map((m) => (
-                  <span
-                    key={m.toISOString()}
-                    aria-hidden
-                    className={m.getMonth() % 3 === 0 ? 'absolute inset-y-0 border-s border-neutral-300' : 'absolute inset-y-0 border-s border-dashed border-neutral-200'}
-                    style={{ insetInlineStart: `${pos(m)}%` }}
-                  />
-                ))}
-                {lane.rows.map((row, ri) =>
-                  row.map((o) => {
-                    const top = 8 + ri * ROW_H
-                    const t = o.t
-                    const st = STATUS[statusOf(t)]
-                    const kindName = t.kind ? ITEM_KINDS[t.kind] : 'غير مصنّف'
-                    return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => openTask(t.id)}
-                        className={cn(
-                          'absolute flex items-center gap-1.5 whitespace-nowrap rounded-full py-0.5 text-xs font-medium text-fg-primary hover:bg-brand-soft',
-                          flip(o.s) ? 'flex-row-reverse ps-2' : 'pe-2',
-                        )}
-                        style={{ ...(flip(o.s) ? { insetInlineEnd: `calc(${100 - pos(o.s)}% - 7px)` } : { insetInlineStart: `calc(${pos(o.s)}% - 7px)` }), top: top + 4 }}
-                        title={`${t.title} (${kindName})\nالتاريخ: ${fmtDate(span(t)[1])}\n${st.name}`}
-                      >
-                        <Dot color={st.color} />
-                        {t.title}
-                        {isReady(t) && <ReadyStar size={13} />}
-                        <span className="font-normal text-fg-tertiary">{fmtDay(span(t)[1])}</span>
-                        {isOverdue(t, now) && <span className="rounded-full bg-danger-50 px-1.5 text-2xs font-medium text-danger-700">متأخرة</span>}
-                      </button>
-                    )
-                  }),
-                )}
-                {showToday && (
-                  <span aria-hidden className="pointer-events-none absolute inset-y-0 z-10 border-s-[1.5px] border-dashed border-gold-500" style={{ insetInlineStart: `${nowPos}%` }} />
-                )}
-              </div>
+        ))}
+        {showToday && (
+          <div className="grid grid-cols-[140px_1fr]">
+            <div />
+            <div className="relative h-8">
+              <span
+                className="absolute top-1.5 inline-flex translate-x-1/2 items-center gap-1.5 rounded-full border border-gold-500/40 bg-surface px-2 py-0.5 text-2xs font-medium text-fg-primary"
+                style={{ insetInlineStart: `${nowPos}%` }}
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-gold-500" />
+                اليوم
+              </span>
             </div>
-          ))}
-          {showToday && (
-            <div className="grid grid-cols-[140px_1fr]">
-              <div />
-              <div className="relative h-8">
-                <span className="absolute top-1.5 inline-flex translate-x-1/2 items-center gap-1.5 rounded-full border border-gold-500/40 bg-surface px-2 py-0.5 text-2xs font-medium text-fg-primary" style={{ insetInlineStart: `${nowPos}%` }}>
-                  <span className="h-1.5 w-1.5 rounded-full bg-gold-500" />
-                  اليوم
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
+    </div>
   )
 }
-
-
 
 const WEEKDAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
 const dayLong = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-arab', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -422,7 +605,9 @@ function MonthCalendar({
   dragId,
   dragging,
   dragProps,
+  canDrag,
   onDrop,
+  forPrint = false,
 }: {
   tasks: Task[]
   numbers: Map<string, number>
@@ -436,8 +621,12 @@ function MonthCalendar({
   /** the item being dragged, known from the very start of the drag (for accepting drops) */
   dragging: () => string | null
   dragProps: (t: Task) => object
+  /** signed in: items can be dragged to another day */
+  canDrag: boolean
   /** an item dropped on a day (YYYY-MM-DD) */
   onDrop: (id: string, iso: string) => void
+  /** the copy for the PDF: the grid on any screen, nothing folded away */
+  forPrint?: boolean
 }) {
   const [open, setOpen] = useState<string | null>(null)
   // the day under a dragged item
@@ -502,7 +691,7 @@ function MonthCalendar({
   return (
     <div aria-label={`تقويم ${fmtMonth(month)} ${toArabicDigits(month.getFullYear())}`} role="region">
       {/* wide screens: the month grid */}
-      <div className="hidden md:block">
+      <div className={forPrint ? 'block' : 'hidden md:block'}>
         <div className="grid grid-cols-7 border-b border-line-subtle bg-neutral-25 text-center text-xs font-medium text-fg-secondary">
           {WEEKDAYS.map((w) => (
             <div key={w} className="py-2">
@@ -514,7 +703,7 @@ function MonthCalendar({
           {days.map((d) => {
             const iso = isoDate(d)
             const list = byDay.get(iso) ?? []
-            const shown = open === iso ? list : list.slice(0, PER_DAY)
+            const shown = forPrint || open === iso ? list : list.slice(0, PER_DAY)
             const weekend = d.getDay() === 5 || d.getDay() === 6
             return (
               <div
@@ -537,9 +726,13 @@ function MonthCalendar({
                 >
                   {toArabicDigits(d.getDate())}
                 </span>
-                {shown.map((t) => chip(t, true))}
-                {list.length > PER_DAY && (
-                  <button type="button" onClick={() => setOpen(open === iso ? null : iso)} className="px-1.5 text-start text-2xs font-medium text-brand hover:underline">
+                {shown.map((t) => chip(t, canDrag))}
+                {!forPrint && list.length > PER_DAY && (
+                  <button
+                    type="button"
+                    onClick={() => setOpen(open === iso ? null : iso)}
+                    className="px-1.5 text-start text-2xs font-medium text-brand hover:underline"
+                  >
                     {open === iso ? 'عرض أقل' : `+${toArabicDigits(list.length - PER_DAY)} أخرى`}
                   </button>
                 )}
@@ -550,20 +743,139 @@ function MonthCalendar({
       </div>
 
       {/* phones: the days that have something, in order */}
-      <ol className="divide-y divide-line-subtle md:hidden">
+      <ol className={cn('divide-y divide-line-subtle md:hidden', forPrint && 'hidden')}>
         {busy.map((d) => {
           const iso = isoDate(d)
           return (
             <li key={iso} className="flex gap-3 px-4 py-3">
-              <span className={cn('w-24 shrink-0 text-xs', iso === todayIso ? 'font-bold text-fg-primary' : 'font-medium text-fg-secondary')}>{dayLong.format(d)}</span>
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
-                {byDay.get(iso)!.map((t) => chip(t, false))}
-              </div>
+              <span className={cn('w-24 shrink-0 text-xs', iso === todayIso ? 'font-bold text-fg-primary' : 'font-medium text-fg-secondary')}>
+                {dayLong.format(d)}
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-1">{byDay.get(iso)!.map((t) => chip(t, false))}</div>
             </li>
           )
         })}
         {!busy.length && <li className="px-4 py-6 text-sm text-fg-muted">لا شيء في هذا الشهر.</li>}
       </ol>
+    </div>
+  )
+}
+
+const WEEKDAY_INITIALS = ['ح', 'ن', 'ث', 'ر', 'خ', 'ج', 'س']
+
+/**
+ * A whole year, January to December: for each month a small day grid (a dot per item, in the
+ * calendar colours) and, under it, the month's items with their day. Clicking a month's name
+ * opens it in the month view.
+ */
+function YearCalendar({
+  tasks,
+  numbers,
+  year,
+  now,
+  openTask,
+  colorOf,
+  onOpenMonth,
+  forPrint = false,
+}: {
+  tasks: Task[]
+  numbers: Map<string, number>
+  year: number
+  now: Date
+  openTask: (id: string) => void
+  colorOf: (t: Task) => string
+  onOpenMonth: (m: number) => void
+  forPrint?: boolean
+}) {
+  const todayIso = isoDate(now)
+  const { byDay, byMonth } = useMemo(() => {
+    const byDay = new Map<string, Task[]>()
+    const byMonth = new Map<number, Task[]>()
+    const dated = tasks.filter((t) => t.end && parseDate(t.end)?.getFullYear() === year)
+    dated.sort((a, b) => a.end.localeCompare(b.end) || numbers.get(a.id)! - numbers.get(b.id)!)
+    for (const t of dated) {
+      byDay.set(t.end, [...(byDay.get(t.end) ?? []), t])
+      const m = parseDate(t.end)!.getMonth()
+      byMonth.set(m, [...(byMonth.get(m) ?? []), t])
+    }
+    return { byDay, byMonth }
+  }, [tasks, numbers, year])
+
+  return (
+    <div
+      role="region"
+      aria-label={`تقويم ${toArabicDigits(year)}`}
+      className={cn('grid gap-4 p-4 md:p-5', forPrint ? 'grid-cols-4' : 'sm:grid-cols-2 xl:grid-cols-4')}
+    >
+      {Array.from({ length: 12 }, (_, m) => {
+        const first = new Date(year, m, 1)
+        const last = new Date(year, m + 1, 0)
+        const days: (Date | null)[] = [...Array(first.getDay()).fill(null)]
+        for (let d = 1; d <= last.getDate(); d++) days.push(new Date(year, m, d))
+        const items = byMonth.get(m) ?? []
+        return (
+          <section
+            key={m}
+            aria-label={`${fmtMonth(first)} ${toArabicDigits(year)}`}
+            className="flex min-w-0 flex-col rounded-xl border border-line-subtle bg-surface p-3"
+          >
+            <button
+              type="button"
+              onClick={() => onOpenMonth(m)}
+              className="mb-2 self-start rounded text-md font-medium text-fg-primary hover:text-brand"
+              title="فتح الشهر"
+            >
+              {fmtMonth(first)}
+            </button>
+            <div className="grid grid-cols-7 gap-y-0.5 text-center">
+              {WEEKDAY_INITIALS.map((w) => (
+                <span key={w} className="text-2xs text-fg-tertiary">
+                  {w}
+                </span>
+              ))}
+              {days.map((d, i) => {
+                if (!d) return <span key={`e${i}`} />
+                const iso = isoDate(d)
+                const list = byDay.get(iso) ?? []
+                return (
+                  <span key={iso} className="flex flex-col items-center" title={list.map((t) => t.title).join('، ') || undefined}>
+                    <span
+                      className={cn(
+                        'flex h-6 w-6 items-center justify-center rounded-full text-2xs tabular',
+                        iso === todayIso ? 'border-2 border-fg-primary font-bold' : list.length ? 'font-bold text-fg-primary' : 'text-fg-secondary',
+                      )}
+                    >
+                      {toArabicDigits(d.getDate())}
+                    </span>
+                    <span className="flex h-1.5 gap-0.5">
+                      {list.slice(0, 3).map((t) => (
+                        <span key={t.id} className="h-1.5 w-1.5 rounded-full" style={{ background: colorOf(t) }} />
+                      ))}
+                    </span>
+                  </span>
+                )
+              })}
+            </div>
+            <ul className="mt-2 flex flex-col gap-1 border-t border-line-subtle pt-2">
+              {items.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    onClick={() => openTask(t.id)}
+                    className="flex w-full min-w-0 items-center gap-1.5 rounded border-s-[3px] px-1.5 py-0.5 text-start text-xs font-medium text-fg-primary hover:brightness-95"
+                    style={{ borderInlineStartColor: colorOf(t), background: `color-mix(in srgb, ${colorOf(t)} 12%, white)` }}
+                  >
+                    <span className="w-5 shrink-0 tabular text-fg-tertiary">{toArabicDigits(parseDate(t.end)!.getDate())}</span>
+                    <span className={forPrint ? '' : 'truncate'}>{t.title}</span>
+                    {isReady(t) && <ReadyStar size={11} />}
+                  </button>
+                </li>
+              ))}
+              {!items.length && <li className="text-2xs text-fg-muted">لا شيء</li>}
+            </ul>
+          </section>
+        )
+      })}
     </div>
   )
 }

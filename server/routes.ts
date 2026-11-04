@@ -1,8 +1,8 @@
 import { Router, type Request, type Response } from 'express'
-import { EXPECTATIONS, EVENT_FIELDS, ITEM_KINDS, TASK_FIELDS, TASK_STATUSES, type EventItem, type Option, type Settings, type Task } from '../src/lib/types.ts'
+import { EXPECTATIONS, EVENT_FIELDS, ITEM_KINDS, ROLES, TASK_FIELDS, TASK_STATUSES, type Role, type EventItem, type Option, type Settings, type Task } from '../src/lib/types.ts'
 import * as store from './db.ts'
 import { snapshot } from './backup.ts'
-import { checkPassword, clearAdminCookie, isAdmin, rateLimit, requireAdmin, setAdminCookie } from './auth.ts'
+import { ADMIN_USERNAME, checkPassword, clearSessionCookie, currentUser, hashPassword, isAdmin, rateLimit, requireAdmin, requireEditor, setSessionCookie, verifyPassword } from './auth.ts'
 
 /* ---------- live updates (Server-Sent Events) ---------- */
 let version = Date.now()
@@ -109,19 +109,11 @@ function pick<K extends string>(body: unknown, fields: readonly K[], clean: (k: 
   return out
 }
 
-/** Who made the change: the display name each browser asks for once. */
+/** Who made the change: the signed-in account's name (the routes are guarded, so there is one). */
 function editor(req: Request): string {
-  const raw = req.get('x-editor')
-  let name = ''
-  try {
-    name = raw ? decodeURIComponent(raw).trim().slice(0, 60) : ''
-  } catch {
-    /* malformed header */
-  }
-  // only the server marks a real admin session; a typed «(مشرف)» is not a credential
-  name = name.replace(/[(\[]?\s*مشرف\s*[)\]]?/g, '').replace(/\s+/g, ' ').trim()
-  if (!name) throw new Invalid('اكتب اسمك قبل الحفظ ليظهر في سجل التعديلات.')
-  return isAdmin(req) ? `${name} (مشرف)` : name
+  const u = currentUser(req)
+  if (!u) throw new Invalid('سجّل الدخول لتتمكن من التعديل.')
+  return u.name
 }
 
 const handle = (fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response) => {
@@ -143,7 +135,8 @@ export const api = Router()
 const writes = rateLimit(120, 60_000, 'تعديلات كثيرة خلال دقيقة. انتظر قليلًا ثم حاول مجددًا.')
 
 api.get('/state', (req, res) => {
-  res.json({ tasks: store.listTasks(), events: store.listEvents(), settings: store.getSettings(), isAdmin: isAdmin(req), version })
+  const u = currentUser(req)
+  res.json({ tasks: store.listTasks(), events: store.listEvents(), settings: store.getSettings(), user: u && { name: u.name, role: u.role }, isAdmin: u?.role === 'admin', version })
 })
 
 api.get('/stream', (req, res) => {
@@ -267,9 +260,10 @@ api.post(
   }),
 )
 
-/* ---------- tasks: everyone adds, edits and deletes; the admin can restore a deleted item from the change log ---------- */
+/* ---------- tasks: signed-in accounts add, edit and delete (visitors only view); the admin can restore from the change log ---------- */
 api.post(
   '/tasks',
+  requireEditor,
   writes,
   handle((req, res) => {
     const by = editor(req)
@@ -304,6 +298,7 @@ api.post(
 
 api.patch(
   '/tasks/:id',
+  requireEditor,
   writes,
   handle((req, res) => {
     const by = editor(req)
@@ -326,9 +321,10 @@ api.patch(
   }),
 )
 
-/* drag an item to another place in the list: everyone, like any other edit */
+/* drag an item to another place in the list: any signed-in account, like any other edit */
 api.post(
   '/tasks/:id/move',
+  requireEditor,
   writes,
   handle((req, res) => {
     const by = editor(req)
@@ -347,6 +343,7 @@ api.post(
 
 api.delete(
   '/tasks/:id',
+  requireEditor,
   writes,
   handle((req, res) => {
     const by = editor(req)
@@ -362,6 +359,7 @@ api.delete(
 /* ---------- events ---------- */
 api.post(
   '/events',
+  requireEditor,
   writes,
   handle((req, res) => {
     const by = editor(req)
@@ -376,6 +374,7 @@ api.post(
 
 api.patch(
   '/events/:id',
+  requireEditor,
   writes,
   handle((req, res) => {
     const by = editor(req)
@@ -472,6 +471,8 @@ api.post(
           if (store.getEvent(entry.entityId)) throw new Invalid('هذه الفعالية موجودة بالفعل.')
           store.insertEvent({ ...(entry.old as EventItem) }, by)
         }
+      } else if (entry.field === 'user') {
+        throw new Invalid('تعديلات الحسابات لا تُسترجع من السجل. عدّل الحساب من قائمة المستخدمين.')
       } else if ((entry.action === 'update' || entry.action === 'restore') && entry.field) {
         if (entry.entity === 'settings') store.setSetting(entry.field as keyof Settings, entry.old)
         else {
@@ -490,14 +491,112 @@ api.post(
   }),
 )
 
-/* ---------- admin session ---------- */
-const logins = rateLimit(10, 15 * 60_000, 'محاولات دخول كثيرة. حاول بعد ربع ساعة.')
-api.post('/login', logins, (req, res) => {
-  if (!checkPassword(req.body?.password)) return res.status(401).json({ error: 'كلمة المرور غير صحيحة.' })
-  setAdminCookie(req, res)
-  res.json({ isAdmin: true })
+/* ---------- sign-in: personal accounts, plus the built-in admin ---------- */
+// only failed attempts count: 10 wrong passwords from one address lock it out for a quarter of an hour
+const failures = new Map<string, { n: number; reset: number }>()
+const FAIL_MAX = 10
+const FAIL_WINDOW = 15 * 60_000
+api.post('/login', (req, res) => {
+  const ip = req.ip ?? 'unknown'
+  const now = Date.now()
+  const f = failures.get(ip)
+  if (f && f.reset > now && f.n >= FAIL_MAX) {
+    res.setHeader('Retry-After', Math.ceil((f.reset - now) / 1000))
+    return res.status(429).json({ error: 'محاولات دخول خاطئة كثيرة. حاول بعد ربع ساعة.' })
+  }
+  const username = typeof req.body?.username === 'string' ? req.body.username.trim() : ''
+  const password = typeof req.body?.password === 'string' ? req.body.password : ''
+  const wrong = () => {
+    const cur = failures.get(ip)
+    if (!cur || cur.reset <= now) failures.set(ip, { n: 1, reset: now + FAIL_WINDOW })
+    else cur.n++
+    if (failures.size > 5000) for (const [k, v] of failures) if (v.reset <= now) failures.delete(k)
+    return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة.' })
+  }
+  if (!username || !password) return wrong()
+  if (username.toLowerCase() === ADMIN_USERNAME) {
+    if (!checkPassword(password)) return wrong()
+    setSessionCookie(req, res, ADMIN_USERNAME, 0)
+    return res.json({ user: { name: 'المشرف', role: 'admin' } })
+  }
+  const u = store.findUser(username)
+  if (!u || !u.active || !verifyPassword(password, u.pass)) return wrong()
+  store.updateUser(u.id, { lastLoginAt: Date.now() })
+  setSessionCookie(req, res, u.id, u.tokenVersion)
+  res.json({ user: { name: u.name, role: u.role } })
 })
 api.post('/logout', (_req, res) => {
-  clearAdminCookie(res)
-  res.json({ isAdmin: false })
+  clearSessionCookie(res)
+  res.json({ user: null })
 })
+
+/* ---------- accounts (admin) ---------- */
+const USERNAME = /^[a-z0-9._-]{2,32}$/i
+const cleanRole = (v: unknown): Role => {
+  if (typeof v !== 'string' || !(v in ROLES)) throw new Invalid('صلاحية غير معروفة.')
+  return v as Role
+}
+const cleanPassword = (v: unknown) => {
+  if (typeof v !== 'string' || v.length < 8 || v.length > 200) throw new Invalid('كلمة المرور ٨ أحرف على الأقل.')
+  return v
+}
+const cleanName = (v: unknown) => {
+  const name = str(v, 60, 'الاسم')
+  if (!name) throw new Invalid('اكتب اسمًا يظهر في سجل التعديلات.')
+  return name
+}
+const userLog = (req: Request, action: 'create' | 'update' | 'delete', u: { id: string; name: string; username: string; role: Role }, old: unknown, next: unknown) =>
+  store.audit({ entity: 'settings', entityId: u.id, entityTitle: u.name, action, field: 'user', old, new: next, by: editor(req) })
+
+api.get('/users', requireAdmin, (_req, res) => res.json(store.listUsers().map(store.publicUser)))
+
+api.post(
+  '/users',
+  requireAdmin,
+  handle((req, res) => {
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const username = str(b.username, 32, 'اسم المستخدم')
+    if (!USERNAME.test(username)) throw new Invalid('اسم المستخدم من حرفين إلى ٣٢ حرفًا لاتينيًا أو رقمًا (ويمكن . _ -).')
+    if (username.toLowerCase() === ADMIN_USERNAME || store.findUser(username)) throw new Invalid('اسم المستخدم مستخدم بالفعل.')
+    const u = store.insertUser({ username, name: cleanName(b.name), role: cleanRole(b.role ?? 'editor'), pass: hashPassword(cleanPassword(b.password)) })
+    userLog(req, 'create', u, null, { username: u.username, name: u.name, role: u.role })
+    res.status(201).json(store.publicUser(u))
+  }),
+)
+
+api.patch(
+  '/users/:id',
+  requireAdmin,
+  handle((req, res) => {
+    const before = store.getUser(req.params.id)
+    if (!before) return res.status(404).json({ error: 'لم يعد هذا الحساب موجودًا.' })
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const patch: Parameters<typeof store.updateUser>[1] = {}
+    if ('name' in b) patch.name = cleanName(b.name)
+    if ('role' in b) patch.role = cleanRole(b.role)
+    if ('active' in b) patch.active = !!b.active
+    if ('password' in b) patch.pass = hashPassword(cleanPassword(b.password))
+    // an admin can't lock themselves out
+    if (before.id === currentUser(req)?.id && (patch.role === 'editor' || patch.active === false)) throw new Invalid('لا يمكنك إيقاف حسابك أو إزالة صلاحية المشرف عنه.')
+    // a new password or a stopped account ends its sessions
+    if (patch.pass || patch.active === false) patch.bumpVersion = true
+    store.updateUser(before.id, patch)
+    const after = store.getUser(before.id)!
+    const shown = (u: typeof before) => ({ name: u.name, role: u.role, active: u.active })
+    userLog(req, 'update', after, shown(before), { ...shown(after), ...(patch.pass ? { password: 'تغيّرت' } : {}) })
+    res.json(store.publicUser(after))
+  }),
+)
+
+api.delete(
+  '/users/:id',
+  requireAdmin,
+  handle((req, res) => {
+    const before = store.getUser(req.params.id)
+    if (!before) return res.status(404).json({ error: 'لم يعد هذا الحساب موجودًا.' })
+    if (before.id === currentUser(req)?.id) throw new Invalid('لا يمكنك حذف حسابك.')
+    store.deleteUser(before.id)
+    userLog(req, 'delete', before, { username: before.username, name: before.name, role: before.role }, null)
+    res.status(204).end()
+  }),
+)

@@ -21,6 +21,20 @@ function show(field: string, v: unknown, labelName: (id: string) => string): str
 const KIND = { task: 'البند', event: 'الفعالية', settings: '' }
 
 function sentence(a: AuditEntry, labelName: (id: string) => string) {
+  // personal accounts (no passwords are ever logged)
+  if (a.field === 'user') {
+    const acct = `حساب «${a.entityTitle}»`
+    if (a.action === 'create') return `أنشأ ${acct}`
+    if (a.action === 'delete') return `حذف ${acct}`
+    const o = (a.old ?? {}) as { role?: string; active?: boolean }
+    const n = (a.new ?? {}) as { role?: string; active?: boolean; password?: string }
+    const parts = [
+      o.active !== n.active && (n.active ? 'أعاد تفعيل' : 'أوقف'),
+      o.role !== n.role && `غيّر صلاحية (${n.role === 'admin' ? 'مشرف' : 'تعديل البنود'})`,
+      n.password && 'غيّر كلمة مرور',
+    ].filter(Boolean)
+    return `${parts.length ? parts.join(' و') : 'عدّل'} ${acct}`
+  }
   const what = a.entity === 'settings' ? FIELD_NAMES[a.field] ?? a.field : `${KIND[a.entity]} «${a.entityTitle}»`
   switch (a.action) {
     case 'create':
@@ -57,7 +71,7 @@ export function Activity() {
                 </p>
                 <p className="mt-0.5 text-xs text-fg-tertiary">{fmtTime(a.at)}</p>
               </div>
-              {isAdmin && (a.action === 'update' || a.action === 'delete') && (
+              {isAdmin && (a.action === 'update' || a.action === 'delete') && a.field !== 'user' && (
                 <button
                   type="button"
                   onClick={() => run(() => api.restore(a.id), 'تم الاسترجاع')}
