@@ -95,10 +95,27 @@ export interface AuditEntry {
   at: number
 }
 
+export type Role = 'editor' | 'admin'
+export const ROLES: Record<Role, string> = { editor: 'تعديل البنود', admin: 'مشرف' }
+
+/** A personal account (the password never leaves the server). */
+export interface UserInfo {
+  id: string
+  username: string
+  /** shown in the change log, e.g. «نائب الرئيس» */
+  name: string
+  role: Role
+  active: boolean
+  createdAt: number
+  lastLoginAt: number | null
+}
+
 export interface BoardState {
   tasks: Task[]
   events: EventItem[]
   settings: Settings
+  /** who is signed in; null = a visitor, who can only view */
+  user: { name: string; role: Role } | null
   isAdmin: boolean
   version: number
 }

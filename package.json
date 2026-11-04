@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "description": "لوحة أولويات نائب الرئيس — المهام والفعاليات والطاقة الاستيعابية للفريق",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "concurrently -k -n api,web \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "tsx watch server/index.ts",
@@ -31,6 +33,8 @@
     "autoprefixer": "^10.6.1",
     "concurrently": "^9.1.2",
     "framer-motion": "^11.18.2",
+    "html-to-image": "1.11.13",
+    "jspdf": "4.2.1",
     "lucide-react": "^1.57.0",
     "postcss": "^8.5.30",
     "react": "^18.3.1",

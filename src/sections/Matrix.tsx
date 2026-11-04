@@ -39,7 +39,7 @@ const QUADRANTS = [
 ]
 
 export function Matrix() {
-  const { state, labels, openTask, run, patchLocal } = useBoardCtx()
+  const { state, labels, openTask, run, patchLocal, canEdit } = useBoardCtx()
   const [filter, setFilter] = useState<string[]>([])
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null)
   // the item under the pointer, in the matrix or the list beside it: both highlight it
@@ -103,7 +103,8 @@ export function Matrix() {
   }
   const onMove = (e: RPointerEvent, id: string, scored: boolean) => {
     const s = start.current
-    if (!s) return
+    // visitors can only view: a press just opens the item
+    if (!s || !canEdit) return
     if (!s.moved && Math.hypot(e.clientX - s.x, e.clientY - s.y) < 5) return
     s.moved = true
     const p = toSvg(e)
@@ -136,7 +137,7 @@ export function Matrix() {
     return (
       <g
         key={t.id}
-        className={cn('cursor-grab transition-opacity duration-base focus:outline-none', d && 'cursor-grabbing')}
+        className={cn(canEdit ? 'cursor-grab' : 'cursor-pointer', 'transition-opacity duration-base focus:outline-none', d && 'cursor-grabbing')}
         opacity={dim ? 0.25 : 1}
         tabIndex={0}
         role="button"
@@ -150,7 +151,7 @@ export function Matrix() {
         onPointerUp={(e) => onUp(e, t.id, scored)}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(t.id))}
       >
-        <title>{`${n}. ${t.title} · ${st.name}${isReady(t) ? ' · ★ جاهز للإطلاق' : ''}\n${scored ? `الأهمية ${toArabicDigits(t.priority ?? 0)} · الاستعجال ${toArabicDigits(t.urgency ?? 0)}` : 'لم تُقيَّم بعد: اسحبها إلى المصفوفة'}`}</title>
+        <title>{`${n}. ${t.title} · ${st.name}${isReady(t) ? ' · ★ جاهز للإطلاق' : ''}\n${scored ? `الأهمية ${toArabicDigits(t.priority ?? 0)} · الاستعجال ${toArabicDigits(t.urgency ?? 0)}` : canEdit ? 'لم تُقيَّم بعد: اسحبها إلى المصفوفة' : 'لم تُقيَّم بعد'}`}</title>
         <circle cx={x} cy={y} r={b.r} fill={st.color} stroke="#fff" strokeWidth={2} />
         {hover === t.id && <circle cx={x} cy={y} r={b.r + 5} fill="none" stroke="var(--nwc-blue-500)" strokeWidth={2.5} />}
         <text x={x} y={y + 4.5 * Math.min(k, 1.4)} textAnchor="middle" fontSize={13 * Math.min(k, 1.4)} fontWeight={700} fill="#fff" pointerEvents="none">
@@ -170,7 +171,7 @@ export function Matrix() {
       <div className="mb-4 flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="text-xl font-medium">الأهمية والاستعجال</h3>
-          <p className="text-sm text-fg-tertiary">الرقم = رقم البند في الجدول · الحجم = الجهد · اللون = الحالة · اسحب الفقاعة لتغيير موقعها</p>
+          <p className="text-sm text-fg-tertiary">الرقم = رقم البند في الجدول · الحجم = الجهد · اللون = الحالة{canEdit && ' · اسحب الفقاعة لتغيير موقعها'}</p>
         </div>
         <FilterChips
           label="تصفية حسب المستوى"
@@ -237,7 +238,7 @@ export function Matrix() {
             <g>
               <rect x={BOX.x0} y={TRAY.y} width={BOX.x1 - BOX.x0} height={trayH} rx={10} fill="var(--neutral-25, #fafbfc)" stroke="var(--neutral-200)" strokeDasharray="4 4" />
               <text x={BOX.x1 - TRAY.pad} y={TRAY.y + 20} textAnchor="start" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)">
-                لم تُقيَّم بعد ({toArabicDigits(tray.length)}){k > 1.3 ? ' — اسحبها إلى المصفوفة' : ' — اسحب أيًّا منها إلى المصفوفة لتحديد أهميتها واستعجالها'}
+                لم تُقيَّم بعد ({toArabicDigits(tray.length)}){!canEdit ? '' : k > 1.3 ? ' — اسحبها إلى المصفوفة' : ' — اسحب أيًّا منها إلى المصفوفة لتحديد أهميتها واستعجالها'}
               </text>
               {tray.filter((b) => drag?.id !== b.t.id).map((b) => bubble(b, false))}
             </g>
@@ -271,7 +272,7 @@ export function Matrix() {
  * it) moves the item; the numbers in the list, the bubbles and the table follow.
  */
 function KeyList({ tasks, numbers, hover, setHover }: { tasks: Task[]; numbers: Map<string, number>; hover: string | null; setHover: (id: string | null) => void }) {
-  const { openTask, run, patchLocal } = useBoardCtx()
+  const { openTask, run, patchLocal, canEdit } = useBoardCtx()
   const saved = useMemo(() => [...tasks].sort((a, b) => numbers.get(a.id)! - numbers.get(b.id)!).map((t) => t.id), [tasks, numbers])
   const [order, setOrder] = useState(saved)
   const latest = useRef(order)
@@ -304,9 +305,11 @@ function KeyList({ tasks, numbers, hover, setHover }: { tasks: Task[]; numbers: 
 
   return (
     <div className="flex min-w-0 flex-col lg:border-s lg:border-line-subtle lg:ps-4">
-      <p className="mb-1 flex items-center gap-1 px-1 text-2xs text-fg-tertiary">
-        اسحب <GripVertical size={12} aria-hidden /> لتغيير ترتيب البنود وأرقامها
-      </p>
+      {canEdit && (
+        <p className="mb-1 flex items-center gap-1 px-1 text-2xs text-fg-tertiary">
+          اسحب <GripVertical size={12} aria-hidden /> لتغيير ترتيب البنود وأرقامها
+        </p>
+      )}
       <Reorder.Group as="ol" axis="y" values={order} onReorder={setOrder} layoutScroll className="flex flex-col lg:max-h-[660px] lg:overflow-y-auto" aria-label="أرقام البنود في المصفوفة">
         {order.map((id, i) => {
           const t = byId.get(id)
@@ -325,6 +328,7 @@ function KeyList({ tasks, numbers, hover, setHover }: { tasks: Task[]; numbers: 
                 commit(id, latest.current)
               }}
               onMoveBy={(d) => moveBy(id, d)}
+              canEdit={canEdit}
             />
           )
         })}
@@ -333,7 +337,7 @@ function KeyList({ tasks, numbers, hover, setHover }: { tasks: Task[]; numbers: 
   )
 }
 
-function KeyRow(p: { t: Task; n: number; active: boolean; onHover: (on: boolean) => void; onOpen: () => void; onDragStart: () => void; onDragEnd: () => void; onMoveBy: (d: number) => void }) {
+function KeyRow(p: { t: Task; n: number; active: boolean; onHover: (on: boolean) => void; onOpen: () => void; onDragStart: () => void; onDragEnd: () => void; onMoveBy: (d: number) => void; canEdit: boolean }) {
   const controls = useDragControls()
   const st = STATUS[statusOf(p.t)]
   const unscored = p.t.priority == null || p.t.urgency == null
@@ -353,6 +357,7 @@ function KeyRow(p: { t: Task; n: number; active: boolean; onHover: (on: boolean)
         onPointerEnter={() => p.onHover(true)}
         onPointerLeave={() => p.onHover(false)}
       >
+        {p.canEdit && (
         <button
           type="button"
           aria-label={`تغيير ترتيب «${p.t.title}» (الرقم ${toArabicDigits(p.n)}): اسحب، أو استخدم السهمين للأعلى والأسفل`}
@@ -370,6 +375,7 @@ function KeyRow(p: { t: Task; n: number; active: boolean; onHover: (on: boolean)
         >
           <GripVertical size={16} aria-hidden />
         </button>
+        )}
         <button type="button" onClick={p.onOpen} onFocus={() => p.onHover(true)} onBlur={() => p.onHover(false)} className="flex min-w-0 flex-1 items-center gap-2.5 py-1 pe-2 ps-1 text-start">
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular text-white" style={{ background: st.color }}>
             {toArabicDigits(p.n)}

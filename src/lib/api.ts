@@ -1,34 +1,5 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { AuditEntry, BoardState, EventItem, Settings, Task } from './types'
-
-/* ---------- the editor's display name (asked once per browser) ---------- */
-const NAME_KEY = 'vp:editor-name'
-let editorName = (() => {
-  try {
-    return localStorage.getItem(NAME_KEY) ?? ''
-  } catch {
-    return ''
-  }
-})()
-const nameListeners = new Set<() => void>()
-export function setEditorName(n: string) {
-  editorName = n.trim().slice(0, 60)
-  try {
-    localStorage.setItem(NAME_KEY, editorName)
-  } catch {
-    /* private mode: keep it for this visit */
-  }
-  nameListeners.forEach((l) => l())
-}
-export const useEditorName = () =>
-  useSyncExternalStore(
-    (cb) => (nameListeners.add(cb), () => nameListeners.delete(cb)),
-    () => editorName,
-  )
-
-/** Resolved by the name dialog when a save needs a name first. */
-let askName: (() => Promise<boolean>) | null = null
-export const registerNamePrompt = (fn: () => Promise<boolean>) => (askName = fn)
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { AuditEntry, BoardState, EventItem, Role, Settings, Task, UserInfo } from './types'
 
 export class ApiError extends Error {
   constructor(
@@ -39,13 +10,12 @@ export class ApiError extends Error {
   }
 }
 
-async function call<T>(method: string, path: string, body?: unknown, anonymous = false): Promise<T> {
-  const write = method !== 'GET' && !anonymous
-  if (write && !editorName && askName && !(await askName())) throw new ApiError('أُلغي الحفظ.', 0)
+/** Changes are made by a signed-in account (the session cookie); the server records its name. */
+async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
     credentials: 'same-origin',
-    headers: { ...(body !== undefined && { 'Content-Type': 'application/json' }), ...(write && { 'x-editor': encodeURIComponent(editorName) }) },
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (res.status === 204) return undefined as T
@@ -68,8 +38,12 @@ export const api = {
   saveSettings: (s: Partial<Settings>) => call<Settings>('PUT', '/settings', s),
   restore: (auditId: number) => call<{ ok: true }>('POST', `/audit/${auditId}/restore`),
   restoreBackup: (file: unknown) => call<{ ok: true; tasks: number; events: number }>('POST', '/backup/restore', file),
-  login: (password: string) => call<{ isAdmin: boolean }>('POST', '/login', { password }, true),
-  logout: () => call<{ isAdmin: boolean }>('POST', '/logout', undefined, true),
+  login: (username: string, password: string) => call<{ user: { name: string; role: Role } }>('POST', '/login', { username, password }),
+  logout: () => call<{ user: null }>('POST', '/logout'),
+  users: () => call<UserInfo[]>('GET', '/users'),
+  addUser: (u: { username: string; name: string; role: Role; password: string }) => call<UserInfo>('POST', '/users', u),
+  updateUser: (id: string, patch: Partial<{ name: string; role: Role; active: boolean; password: string }>) => call<UserInfo>('PATCH', `/users/${id}`, patch),
+  deleteUser: (id: string) => call<void>('DELETE', `/users/${id}`),
 }
 
 /* ---------- board state, refreshed live over Server-Sent Events ---------- */

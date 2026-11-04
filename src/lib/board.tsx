@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ApiError, useBoard, type Conn } from './api'
+import { useBoard, type Conn } from './api'
 import type { AuditEntry, BoardState, Option, Task } from './types'
 
 interface Toast {
@@ -12,6 +12,10 @@ interface BoardApi {
   state: BoardState | null
   audit: AuditEntry[]
   conn: Conn
+  /** the signed-in account; null for a visitor */
+  user: BoardState['user']
+  /** signed in: may add, edit, delete and drag (visitors only view) */
+  canEdit: boolean
   isAdmin: boolean
   refresh: () => void
   labelName: (id: string) => string
@@ -59,8 +63,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
         refresh()
         return r
       } catch (e) {
-        // cancelled at the name prompt: drop any optimistic change (e.g. a dragged bubble)
-        if (e instanceof ApiError && e.status === 0) return void refresh()
+        // the server's message (e.g. a session that ended), and back to the saved values
         toast(e instanceof Error ? e.message : 'تعذّر الحفظ.', 'error')
         refresh()
       }
@@ -79,7 +82,9 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       state,
       audit,
       conn,
-      isAdmin: !!state?.isAdmin,
+      user: state?.user ?? null,
+      canEdit: !!state?.user,
+      isAdmin: state?.user?.role === 'admin',
       refresh,
       labels,
       labelName: (id) => labels.find((l) => l.id === id)?.name ?? 'بدون مستوى',

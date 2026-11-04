@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
-import { DatabaseBackup, Download, FileSpreadsheet, Plus, Upload, X } from 'lucide-react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { DatabaseBackup, Download, FileSpreadsheet, KeyRound, Plus, Trash2, Upload, UsersRound, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
-import { toArabicDigits } from '@/lib/format'
-import type { Option, Settings } from '@/lib/types'
+import { cn } from '@/lib/cn'
+import { fmtTime, toArabicDigits } from '@/lib/format'
+import { ROLES, type Option, type Role, type Settings, type UserInfo } from '@/lib/types'
 
 const slug = (name: string, taken: Option[]) => {
   let base = name
@@ -64,7 +65,210 @@ function OptionList({ title, note, items, onChange }: { title: string; note: str
   )
 }
 
-/** Admin-only: the list of levels everyone picks from, plus backups. */
+const blankUser = { name: '', username: '', password: '', role: 'editor' as Role }
+
+/**
+ * Admin-only: the personal accounts that may edit. Anyone with the link can view; the built-in
+ * «admin» account always remains, so the board can never be locked.
+ */
+function Users() {
+  const { run } = useBoardCtx()
+  const [users, setUsers] = useState<UserInfo[] | null>(null)
+  const [form, setForm] = useState(blankUser)
+  const [reset, setReset] = useState<{ id: string; password: string } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const load = () =>
+    api
+      .users()
+      .then(setUsers)
+      .catch(() => setUsers([]))
+  useEffect(() => {
+    void load()
+  }, [])
+  const act = async (p: () => Promise<unknown>, done: string) => {
+    const ok = await run(p, done)
+    void load()
+    return ok
+  }
+
+  const add = async (e: FormEvent) => {
+    e.preventDefault()
+    if (await act(() => api.addUser({ ...form, username: form.username.trim(), name: form.name.trim() }), `أُنشئ حساب ${form.name.trim()}`)) setForm(blankUser)
+  }
+
+  return (
+    <Card padding="none" className="p-4 md:p-6">
+      <h4 className="flex items-center gap-2 font-medium">
+        <UsersRound size={18} aria-hidden className="text-brand" />
+        المستخدمون
+      </h4>
+      <p className="mt-1 max-w-prose text-sm text-fg-secondary">
+        كل من لديه الرابط يرى اللوحة فقط. للتعديل يحتاج الشخص حسابًا هنا، ويظهر اسمه في سجل التعديلات. صلاحية «مشرف» تدير أيضًا الحسابات والإعدادات والنسخ الاحتياطي. الحساب المدمج «admin» يبقى دائمًا.
+      </p>
+
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
+          <thead>
+            <tr className="text-xs text-fg-tertiary">
+              <th className="py-2 text-start font-medium">الاسم</th>
+              <th className="py-2 text-start font-medium">اسم المستخدم</th>
+              <th className="py-2 text-start font-medium">الصلاحية</th>
+              <th className="py-2 text-start font-medium">آخر دخول</th>
+              <th className="py-2 text-start font-medium">الحالة</th>
+              <th className="py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {users?.map((u) => (
+              <tr key={u.id} className={cn('border-t border-line-subtle align-middle', !u.active && 'text-fg-muted')}>
+                <td className="py-2 pe-3 font-medium">{u.name}</td>
+                <td className="py-2 pe-3 font-ui" dir="ltr">
+                  {u.username}
+                </td>
+                <td className="py-2 pe-3">
+                  <select
+                    aria-label={`صلاحية ${u.name}`}
+                    className="field h-9 py-0"
+                    value={u.role}
+                    onChange={(e) => void act(() => api.updateUser(u.id, { role: e.target.value as Role }), 'تغيّرت الصلاحية')}
+                  >
+                    {(Object.entries(ROLES) as [Role, string][]).map(([k, name]) => (
+                      <option key={k} value={k}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="py-2 pe-3 text-xs text-fg-tertiary">{u.lastLoginAt ? fmtTime(u.lastLoginAt) : 'لم يدخل بعد'}</td>
+                <td className="py-2 pe-3">
+                  <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', u.active ? 'bg-success-50 text-success-700' : 'bg-neutral-100 text-fg-tertiary')}>{u.active ? 'فعّال' : 'موقوف'}</span>
+                </td>
+                <td className="py-2">
+                  <div className="flex flex-wrap items-center justify-end gap-1">
+                    {reset?.id === u.id ? (
+                      <form
+                        className="flex items-center gap-1"
+                        onSubmit={async (e) => {
+                          e.preventDefault()
+                          if (await act(() => api.updateUser(u.id, { password: reset.password }), 'تغيّرت كلمة المرور')) setReset(null)
+                        }}
+                      >
+                        <input
+                          type="password"
+                          aria-label={`كلمة مرور جديدة لـ ${u.name}`}
+                          className="field h-9 w-40"
+                          minLength={8}
+                          required
+                          autoComplete="new-password"
+                          value={reset.password}
+                          onChange={(e) => setReset({ id: u.id, password: e.target.value })}
+                        />
+                        <Button type="submit" size="sm">
+                          حفظ
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setReset(null)}>
+                          إلغاء
+                        </Button>
+                      </form>
+                    ) : confirmDelete === u.id ? (
+                      <>
+                        <span className="text-xs text-danger-700">حذف الحساب نهائيًا؟</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-danger-500 text-danger-700 hover:bg-danger-50"
+                          onClick={async () => {
+                            await act(() => api.deleteUser(u.id), 'حُذف الحساب')
+                            setConfirmDelete(null)
+                          }}
+                        >
+                          نعم، احذف
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>
+                          تراجع
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button size="sm" variant="ghost" icon={<KeyRound size={14} aria-hidden />} onClick={() => setReset({ id: u.id, password: '' })}>
+                          كلمة مرور جديدة
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => void act(() => api.updateUser(u.id, { active: !u.active }), u.active ? 'أُوقف الحساب' : 'أُعيد تفعيل الحساب')}>
+                          {u.active ? 'إيقاف' : 'تفعيل'}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-danger-700 hover:bg-danger-50" aria-label={`حذف حساب ${u.name}`} icon={<Trash2 size={14} aria-hidden />} onClick={() => setConfirmDelete(u.id)}>
+                          حذف
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {users && !users.length && (
+              <tr>
+                <td colSpan={6} className="border-t border-line-subtle py-4 text-center text-fg-tertiary">
+                  لا توجد حسابات بعد. أضف حساب نائب الرئيس وحسابات الفريق من النموذج أدناه.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <form onSubmit={add} className="mt-5 grid gap-3 border-t border-line-subtle pt-4 sm:grid-cols-2 lg:grid-cols-[1.2fr_1fr_1fr_0.9fr_auto] lg:items-end">
+        <div>
+          <label htmlFor="u-name" className="field-label">
+            الاسم (يظهر في السجل)
+          </label>
+          <input id="u-name" className="field" required maxLength={60} placeholder="مثال: نائب الرئيس" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </div>
+        <div>
+          <label htmlFor="u-username" className="field-label">
+            اسم المستخدم
+          </label>
+          <input
+            id="u-username"
+            className="field"
+            dir="ltr"
+            required
+            pattern="[A-Za-z0-9._\-]{2,32}"
+            title="من حرفين إلى ٣٢ حرفًا لاتينيًا أو رقمًا"
+            autoCapitalize="none"
+            spellCheck={false}
+            autoComplete="off"
+            placeholder="vp"
+            value={form.username}
+            onChange={(e) => setForm({ ...form, username: e.target.value })}
+          />
+        </div>
+        <div>
+          <label htmlFor="u-password" className="field-label">
+            كلمة المرور
+          </label>
+          <input id="u-password" type="password" className="field" required minLength={8} autoComplete="new-password" placeholder="٨ أحرف على الأقل" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+        </div>
+        <div>
+          <label htmlFor="u-role" className="field-label">
+            الصلاحية
+          </label>
+          <select id="u-role" className="field" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
+            {(Object.entries(ROLES) as [Role, string][]).map(([k, name]) => (
+              <option key={k} value={k}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <Button type="submit" icon={<Plus size={16} aria-hidden />}>
+          إضافة حساب
+        </Button>
+      </form>
+    </Card>
+  )
+}
+
+/** Admin-only: the list of levels everyone picks from, the accounts, and backups. */
 export function AdminPanel() {
   const { state, run } = useBoardCtx()
   const saved = state?.settings
@@ -123,6 +327,7 @@ export function AdminPanel() {
           )}
         </div>
       </Card>
+      <Users />
       <Backup />
     </div>
   )

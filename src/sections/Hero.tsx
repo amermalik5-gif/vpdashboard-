@@ -11,7 +11,7 @@ import { addDays, hasDate, isOpen, isReady, span, statusOf, today } from '@/lib/
  * first, and the main action. Keeps the booklet's navy + pattern, without a full hero.
  */
 export function Hero() {
-  const { state, openTask, setReadyOnly } = useBoardCtx()
+  const { state, openTask, setReadyOnly, canEdit } = useBoardCtx()
   const tasks = state?.tasks ?? []
   const open = tasks.filter(isOpen)
   const now = today()
@@ -67,14 +67,16 @@ export function Hero() {
               </div>
             ))}
           </dl>
-          <button
-            type="button"
-            onClick={() => openTask(null)}
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-md bg-white px-4 text-sm font-medium text-brand transition-colors duration-fast hover:bg-blue-50"
-          >
-            <Plus size={18} aria-hidden />
-            إضافة مهمة أو فعالية
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => openTask(null)}
+              className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-md bg-white px-4 text-sm font-medium text-brand transition-colors duration-fast hover:bg-blue-50"
+            >
+              <Plus size={18} aria-hidden />
+              إضافة مهمة أو فعالية
+            </button>
+          )}
         </div>
       </div>
     </section>

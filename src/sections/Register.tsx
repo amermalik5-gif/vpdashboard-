@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, Plus, Search, X } from 'lucide-react'
 import { ReadyStar } from '@/components/ReadyStar'
 import { Badge } from '@/components/ui/Badge'
@@ -9,7 +9,7 @@ import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDay, toArabicDigits } from '@/lib/format'
-import { STATUS, daysOverdue, hasDate, isOverdue, isReady, itemNumbers, progressPatch, span, statusOf, statusPatch, type Status } from '@/lib/schedule'
+import { STATUS, daysOverdue, hasDate, isOverdue, isReady, itemNumbers, parseDate, progressPatch, span, statusOf, statusPatch, type Status } from '@/lib/schedule'
 import { ITEM_KINDS, TASK_STATUSES, type ItemKind, type Task } from '@/lib/types'
 
 type Sort = 'order' | 'rank' | 'late' | 'end' | 'progress' | 'recent'
@@ -53,11 +53,19 @@ function Overdue({ t, className }: { t: Task; className?: string }) {
 
 const Num = ({ v }: { v: number | null }) => <span className="font-ui tabular">{v == null ? '–' : toArabicDigits(v)}</span>
 
-/* ---------- cells edited in place ---------- */
+/* ---------- cells edited in place (plain text for visitors, who can only view) ---------- */
+const Locked = createContext(false)
+const textCls = 'block min-h-9 px-2 py-2 text-sm text-fg-primary'
 const cellCls =
   'h-9 w-full min-w-0 rounded-md border border-transparent bg-transparent px-2 text-sm text-fg-primary transition-colors duration-fast hover:border-line-subtle hover:bg-surface focus:border-brand focus:bg-surface focus:outline-none disabled:opacity-60'
 
 function SelectCell({ value, options, label, onSave, className }: { value: string; options: [string, string][]; label: string; onSave: (v: string) => void; className?: string }) {
+  if (useContext(Locked))
+    return (
+      <span aria-label={label} className={cn(textCls, className)}>
+        {options.find(([v]) => v === value)?.[1] ?? '–'}
+      </span>
+    )
   return (
     <select aria-label={label} className={cn(cellCls, 'cursor-pointer', className)} value={value} onChange={(e) => onSave(e.target.value)}>
       {options.map(([v, name]) => (
@@ -73,11 +81,18 @@ const numOptions = (values: number[], suffix = ''): [string, string][] => [['', 
 
 /** Free text: saved when the field loses focus or on Enter, never on every keystroke. */
 function TextCell({ value, label, placeholder, onSave }: { value: string; label: string; placeholder?: string; onSave: (v: string) => void }) {
+  const locked = useContext(Locked)
   const [draft, setDraft] = useState(value)
   const focused = useRef(false)
   useEffect(() => {
     if (!focused.current) setDraft(value)
   }, [value])
+  if (locked)
+    return (
+      <span aria-label={label} title={value} className={cn(textCls, 'truncate text-fg-secondary')}>
+        {value || '–'}
+      </span>
+    )
   const commit = () => {
     focused.current = false
     if (draft.trim() !== value) onSave(draft.trim())
@@ -120,7 +135,7 @@ const KIND_OPTIONS: [string, string][] = [['', '–'], ...(Object.entries(ITEM_K
 const STATUS_OPTIONS = Object.entries(TASK_STATUSES) as [Status, string][]
 
 export function Register() {
-  const { state, labels, labelName, openTask, run, patchLocal, readyOnly, setReadyOnly } = useBoardCtx()
+  const { state, labels, labelName, openTask, run, patchLocal, readyOnly, setReadyOnly, canEdit } = useBoardCtx()
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<Sort>('order')
   const tasks = useMemo(() => {
@@ -150,9 +165,11 @@ export function Register() {
         </label>
         <div className="flex flex-wrap items-center gap-3">
           <Tabs label="ترتيب المهام والفعاليات" items={SORTS} value={sort} onChange={setSort} />
-          <Button icon={<Plus size={18} aria-hidden />} onClick={() => openTask(null)}>
-            إضافة مهمة أو فعالية
-          </Button>
+          {canEdit && (
+            <Button icon={<Plus size={18} aria-hidden />} onClick={() => openTask(null)}>
+              إضافة مهمة أو فعالية
+            </Button>
+          )}
         </div>
       </div>
 
@@ -169,6 +186,7 @@ export function Register() {
       )}
 
       {/* wide screens: one table, every value editable in place */}
+      <Locked.Provider value={!canEdit}>
       <div className="hidden overflow-x-auto lg:block">
         <table className="w-full min-w-[1280px] border-collapse text-sm">
           <thead>
@@ -248,16 +266,22 @@ export function Register() {
                     />
                   </td>
                   <td className="bg-blue-50/30 py-2">
-                    <input
-                      type="date"
-                      aria-label={`التاريخ — ${name}`}
-                      className={cn(cellCls, 'tabular')}
-                      value={t.end}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        if (v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v)) save(t, { end: v })
-                      }}
-                    />
+                    {canEdit ? (
+                      <input
+                        type="date"
+                        aria-label={`التاريخ — ${name}`}
+                        className={cn(cellCls, 'tabular')}
+                        value={t.end}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if (v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v)) save(t, { end: v })
+                        }}
+                      />
+                    ) : (
+                      <span aria-label={`التاريخ — ${name}`} className={textCls}>
+                        {t.end ? fmtDay(parseDate(t.end)!) : '–'}
+                      </span>
+                    )}
                     {estimated && <p className="px-2 text-2xs text-fg-tertiary">تقديري: {fmtDay(span(t)[1])}</p>}
                   </td>
                   <td className="py-2">
@@ -285,8 +309,9 @@ export function Register() {
                     <input
                       type="checkbox"
                       aria-label={`جاهز للإطلاق — ${name}`}
-                      className="h-4 w-4 cursor-pointer align-middle accent-[var(--ready-stroke)]"
+                      className="h-4 w-4 cursor-pointer align-middle accent-[var(--ready-stroke)] disabled:cursor-default"
                       checked={t.ready}
+                      disabled={!canEdit}
                       onChange={(e) => save(t, { ready: e.target.checked })}
                     />
                   </td>
@@ -299,6 +324,7 @@ export function Register() {
           </tbody>
         </table>
       </div>
+      </Locked.Provider>
 
       {/* phones and tablets: cards that open the full form */}
       <ul className="divide-y divide-line-subtle lg:hidden">
@@ -367,10 +393,11 @@ export function Register() {
       </ul>
 
       {!tasks.length && (
-        <p className="p-8 text-center text-fg-tertiary">{readyOnly ? 'لا توجد بنود جاهزة للإطلاق بعد. علّم «جاهز للإطلاق» في البند ليظهر هنا.' : q ? 'لا شيء يطابق البحث.' : 'لا توجد مهام أو فعاليات بعد. اضغط «إضافة مهمة أو فعالية» لإضافة أول بند.'}</p>
+        <p className="p-8 text-center text-fg-tertiary">{readyOnly ? 'لا توجد بنود جاهزة للإطلاق بعد. علّم «جاهز للإطلاق» في البند ليظهر هنا.' : q ? 'لا شيء يطابق البحث.' : canEdit ? 'لا توجد مهام أو فعاليات بعد. اضغط «إضافة مهمة أو فعالية» لإضافة أول بند.' : 'لا توجد مهام أو فعاليات بعد.'}</p>
       )}
       <p className="border-t border-line-subtle px-5 py-3 text-xs text-fg-tertiary">
-        عدّل أي قيمة مباشرة في الجدول وتُحفظ فورًا. الأعمدة المظللة يحددها نائب الرئيس، والجهد ونسبة الإنجاز والحالة يحدّثها الفريق، والحالة تحدد اللون. اضغط على الاسم لفتح كل التفاصيل.
+        {canEdit ? 'عدّل أي قيمة مباشرة في الجدول وتُحفظ فورًا. ' : 'للعرض فقط. سجّل الدخول للتعديل. '}
+        الأعمدة المظللة يحددها نائب الرئيس، والجهد ونسبة الإنجاز والحالة يحدّثها الفريق، والحالة تحدد اللون. اضغط على الاسم لفتح كل التفاصيل.
       </p>
     </Card>
   )

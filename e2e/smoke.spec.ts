@@ -1,5 +1,25 @@
 import { readFileSync } from 'node:fs'
-import { expect, test } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+
+/* the board is read-only for visitors: every change needs a signed-in account */
+const ADMIN = { username: 'admin', password: 'e2e-secret' }
+type Who = { username: string; password: string }
+
+/** Sign in through the header, as the built-in admin unless told otherwise. */
+async function signIn(page: Page, who: Who = ADMIN) {
+  await page.getByRole('button', { name: 'تسجيل الدخول' }).click()
+  await page.getByLabel('اسم المستخدم').fill(who.username)
+  await page.getByLabel('كلمة المرور').fill(who.password)
+  await page.getByRole('button', { name: 'دخول', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'تسجيل الدخول' })).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+}
+/** Sign an API context in (it keeps the session cookie for the following calls). */
+async function apiSignIn(request: APIRequestContext, who: Who = ADMIN) {
+  expect((await request.post('/api/login', { data: who })).status()).toBe(200)
+}
+const iso = (days: number) => new Date(Date.now() + days * 864e5).toISOString().slice(0, 10)
+const tasksOf = async (request: APIRequestContext) => (await (await request.get('/api/state')).json()).tasks as Record<string, unknown>[]
 
 test('renders right-to-left with the seeded board and no errors', async ({ page }) => {
   const errors: string[] = []
@@ -13,8 +33,96 @@ test('renders right-to-left with the seeded board and no errors', async ({ page 
   expect(errors).toEqual([])
 })
 
-test('anyone can add and edit an item; the change log names them', async ({ page }) => {
+test('the matrix comes first, then the timeline, and the table last', async ({ page }) => {
   await page.goto('/')
+  const order = await page.evaluate(() => Array.from(document.querySelectorAll('main section[id]'), (s) => s.id))
+  expect(order).toEqual(['top', 'matrix', 'timeline', 'register'])
+  await expect(page.getByRole('navigation', { name: 'أقسام اللوحة' }).getByRole('link')).toHaveText(['المصفوفة', 'الخط الزمني', 'المهام والفعاليات'])
+})
+
+test('visitors can only view: no editing controls, and every write is refused', async ({ page, request }) => {
+  await page.goto('/')
+  await expect(page.getByText('للعرض فقط').first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'إضافة مهمة أو فعالية' })).toHaveCount(0)
+  await expect(page.locator('table select, table input:not([type=checkbox])')).toHaveCount(0)
+  await expect(page.locator('table input[type=checkbox]').first()).toBeDisabled()
+  await expect(page.getByRole('button', { name: /^تغيير ترتيب/ })).toHaveCount(0)
+  // an item opens as read-only details
+  await page.locator('table').getByRole('button', { name: 'اليوم الرقمي' }).click()
+  await expect(page.getByRole('heading', { name: 'تفاصيل البند' })).toBeVisible()
+  await expect(page.getByLabel('المهمة / الفعالية', { exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'حفظ', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'حذف', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'إغلاق', exact: true }).last().click()
+
+  const id = (await tasksOf(request))[0].id
+  expect((await request.post('/api/tasks', { data: { title: 'زائر' } })).status()).toBe(401)
+  expect((await request.patch(`/api/tasks/${id}`, { data: { notes: 'x' } })).status()).toBe(401)
+  expect((await request.post(`/api/tasks/${id}/move`, { data: { to: 2 } })).status()).toBe(401)
+  expect((await request.delete(`/api/tasks/${id}`)).status()).toBe(401)
+  // a name typed into the old header is no credential
+  expect((await request.patch(`/api/tasks/${id}`, { headers: { 'x-editor': encodeURIComponent('المشرف') }, data: { notes: 'x' } })).status()).toBe(401)
+})
+
+test('the admin creates the VP’s account; the VP signs in, edits, and the log names him', async ({ page, browser }) => {
+  await page.goto('/')
+  await signIn(page)
+  await page.getByLabel('الاسم (يظهر في السجل)').fill('نائب الرئيس')
+  await page.locator('#u-username').fill('vp')
+  await page.locator('#u-password').fill('vp-pass-123')
+  await page.getByRole('button', { name: 'إضافة حساب' }).click()
+  await expect(page.locator('#admin').getByRole('cell', { name: 'نائب الرئيس', exact: true })).toBeVisible()
+
+  const vp = await browser.newPage()
+  await vp.goto('/')
+  // a wrong password is refused
+  await vp.getByRole('button', { name: 'تسجيل الدخول' }).click()
+  await vp.getByLabel('اسم المستخدم').fill('vp')
+  await vp.getByLabel('كلمة المرور').fill('wrong-password')
+  await vp.getByRole('button', { name: 'دخول', exact: true }).click()
+  await expect(vp.getByText('اسم المستخدم أو كلمة المرور غير صحيحة.')).toBeVisible()
+  await vp.getByLabel('كلمة المرور').fill('vp-pass-123')
+  await vp.getByRole('button', { name: 'دخول', exact: true }).click()
+  await expect(vp.getByRole('button', { name: 'تسجيل الدخول' })).toHaveCount(0)
+  await expect(vp.getByRole('dialog')).toHaveCount(0)
+  // the VP is no admin: no settings
+  await expect(vp.getByRole('heading', { name: 'إعدادات اللوحة' })).toHaveCount(0)
+  await vp.getByLabel('ملاحظات — حفل نهاية السنة', { exact: true }).fill('يحدد المكان لاحقًا')
+  await vp.getByLabel('ملاحظات — حفل نهاية السنة', { exact: true }).press('Enter')
+
+  await page.reload()
+  await expect(page.locator('#activity')).toContainText('نائب الرئيس غيّر الملاحظات في البند «حفل نهاية السنة»')
+  await expect(page.locator('#activity')).toContainText('المشرف أنشأ حساب «نائب الرئيس»')
+})
+
+test('a new password or a stopped account ends that account’s sessions', async ({ page, playwright }) => {
+  await page.goto('/')
+  await signIn(page)
+  const admin = page.request
+  const made = await (await admin.post('/api/users', { data: { username: 'temp.user', name: 'مؤقت', role: 'editor', password: 'first-pass-1' } })).json()
+  const temp = await playwright.request.newContext({ baseURL: 'http://localhost:3099' })
+  await apiSignIn(temp, { username: 'temp.user', password: 'first-pass-1' })
+  const id = (await tasksOf(temp))[0].id
+  expect((await temp.patch(`/api/tasks/${id}`, { data: { owner: 'مؤقت' } })).status()).toBe(200)
+  // the admin resets the password: the old session no longer works
+  expect((await admin.patch(`/api/users/${made.id}`, { data: { password: 'second-pass-2' } })).status()).toBe(200)
+  expect((await temp.patch(`/api/tasks/${id}`, { data: { owner: 'مؤقت ٢' } })).status()).toBe(401)
+  // a stopped account can't sign in
+  expect((await admin.patch(`/api/users/${made.id}`, { data: { active: false } })).status()).toBe(200)
+  expect((await temp.post('/api/login', { data: { username: 'temp.user', password: 'second-pass-2' } })).status()).toBe(401)
+  // only the admin manages accounts; nobody can take the built-in name
+  expect((await temp.get('/api/users')).status()).toBe(401)
+  expect((await admin.post('/api/users', { data: { username: 'admin', name: 'x', role: 'admin', password: 'xxxxxxxx' } })).status()).toBe(400)
+  await temp.dispose()
+})
+
+test('a signed-in editor adds and edits an item; the change log names them', async ({ page }) => {
+  await page.goto('/')
+  await signIn(page)
+  await page.request.post('/api/users', { data: { username: 'sara', name: 'سارة', role: 'editor', password: 'sara-pass-1' } })
+  await page.getByRole('button', { name: /المشرف/ }).first().click() // sign out
+  await signIn(page, { username: 'sara', password: 'sara-pass-1' })
+
   await page.locator('#register').getByRole('button', { name: 'إضافة مهمة' }).click()
   await page.getByLabel('المهمة / الفعالية', { exact: true }).fill('مهمة اختبار')
   // one classification only (31 Oct 2026): no separate category any more
@@ -23,49 +131,38 @@ test('anyone can add and edit an item; the change log names them', async ({ page
   await kind.selectOption('news')
   await expect(page.getByLabel('الفئة', { exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'إضافة', exact: true }).click()
-  // first save asks for a name
-  await page.getByLabel('الاسم').fill('سارة')
-  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
   await expect(page.locator('table').getByText('مهمة اختبار')).toBeVisible()
 
   await page.locator('table').getByText('مهمة اختبار').click()
   await page.getByLabel('المسؤول', { exact: true }).fill('فريق الاتصال')
   await page.getByRole('button', { name: 'حفظ', exact: true }).click()
 
-  // the change log is hidden from visitors, on the page and in the API
+  // the change log is the admin's only, on the page and in the API
   await expect(page.locator('#activity')).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'سجل التعديلات' })).toHaveCount(0)
   expect((await page.request.get('/api/audit')).status()).toBe(401)
 
-  // the admin sees who made the change
-  await page.getByRole('button', { name: 'دخول المشرف' }).click()
-  await page.getByLabel('كلمة المرور').fill('e2e-secret')
-  await page.getByRole('button', { name: 'دخول', exact: true }).click()
+  await page.getByRole('button', { name: /سارة/ }).first().click() // sign out
+  await signIn(page)
   await expect(page.locator('#activity')).toContainText('سارة غيّر المسؤول في البند «مهمة اختبار»')
 })
 
-test('anyone can delete an item; settings need the admin', async ({ page, request }) => {
-  const headers = { 'x-editor': 'test' }
-  // a visitor deletes an item from the form, after confirming
-  const added = await (await request.post('/api/tasks', { headers, data: { title: 'بند للحذف' } })).json()
+test('a signed-in editor deletes an item; settings need the admin', async ({ page, request }) => {
+  await apiSignIn(request)
+  const added = await (await request.post('/api/tasks', { data: { title: 'بند للحذف' } })).json()
+  await request.post('/api/users', { data: { username: 'deleter', name: 'محرر', role: 'editor', password: 'del-pass-1' } })
+
   await page.goto('/')
+  await signIn(page, { username: 'deleter', password: 'del-pass-1' })
   await page.locator('table').getByRole('button', { name: 'بند للحذف' }).click()
   await page.getByRole('button', { name: 'حذف', exact: true }).click()
   await page.getByRole('button', { name: 'نعم، احذف' }).click()
-  await page.getByLabel('الاسم').fill('زائر')
-  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
   await expect(page.locator('table').getByText('بند للحذف')).toHaveCount(0)
-  expect((await (await request.get('/api/state')).json()).tasks.some((t: { id: string }) => t.id === added.id)).toBe(false)
-  expect((await request.put('/api/settings', { headers, data: { weeklyCapacity: 30 } })).status()).toBe(401)
-  expect((await request.post('/api/login', { data: { password: 'wrong' } })).status()).toBe(401)
-
-  await page.goto('/')
-  await page.getByRole('button', { name: 'دخول المشرف' }).click()
-  await page.getByLabel('كلمة المرور').fill('e2e-secret')
-  await page.getByRole('button', { name: 'دخول', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'إعدادات اللوحة' })).toBeVisible()
-  const res = await page.request.put('/api/settings', { headers, data: { weeklyCapacity: 30 } })
-  expect(res.status()).toBe(200)
+  expect((await tasksOf(request)).some((t) => t.id === added.id)).toBe(false)
+  // an editor is not the admin
+  expect((await page.request.put('/api/settings', { data: { weeklyCapacity: 30 } })).status()).toBe(401)
+  expect((await page.request.get('/api/backup')).status()).toBe(401)
+  expect((await request.put('/api/settings', { data: { weeklyCapacity: 30 } })).status()).toBe(200)
 })
 
 test('a save in one tab shows up live in another', async ({ browser }) => {
@@ -74,9 +171,9 @@ test('a save in one tab shows up live in another', async ({ browser }) => {
   await a.goto('/')
   await b.goto('/')
   await expect(b.getByText('مباشر', { exact: true })).toBeVisible()
-  const state = await (await a.request.get('/api/state')).json()
-  const t = state.tasks.find((x: { title: string }) => x.title === 'فيديو جيرا')
-  await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'live' }, data: { title: 'فيديو جيرا محدّث' } })
+  await apiSignIn(a.request)
+  const t = (await tasksOf(a.request)).find((x) => x.title === 'فيديو جيرا')!
+  await a.request.patch(`/api/tasks/${t.id}`, { data: { title: 'فيديو جيرا محدّث' } })
   await expect(b.locator('table').getByText('فيديو جيرا محدّث')).toBeVisible({ timeout: 10_000 })
 })
 
@@ -85,9 +182,7 @@ test('admin can download a full backup and a tasks spreadsheet', async ({ page, 
   expect((await request.get('/api/backup/tasks.csv')).status()).toBe(401)
 
   await page.goto('/')
-  await page.getByRole('button', { name: 'دخول المشرف' }).click()
-  await page.getByLabel('كلمة المرور').fill('e2e-secret')
-  await page.getByRole('button', { name: 'دخول', exact: true }).click()
+  await signIn(page)
 
   const [json] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: /نسخة احتياطية كاملة/ }).click()])
   expect(json.suggestedFilename()).toMatch(/^vp-dashboard-backup-\d{4}-\d{2}-\d{2}\.json$/)
@@ -95,6 +190,8 @@ test('admin can download a full backup and a tasks spreadsheet', async ({ page, 
   expect(backup.tasks.length).toBeGreaterThan(0)
   expect(backup.settings.labels.length).toBe(5)
   expect(Array.isArray(backup.audit)).toBe(true)
+  // accounts and password hashes are never in a backup file
+  expect(JSON.stringify(backup)).not.toContain('scrypt$')
 
   const [csv] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: /Excel/ }).click()])
   const text = readFileSync(await csv.path(), 'utf8')
@@ -103,16 +200,9 @@ test('admin can download a full backup and a tasks spreadsheet', async ({ page, 
   expect(text).toContain('اليوم الرقمي')
 })
 
-const admin = async (page: import('@playwright/test').Page) => {
-  await page.getByRole('button', { name: 'دخول المشرف' }).click()
-  await page.getByLabel('كلمة المرور').fill('e2e-secret')
-  await page.getByRole('button', { name: 'دخول', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'إعدادات اللوحة' })).toBeVisible()
-}
-const iso = (days: number) => new Date(Date.now() + days * 864e5).toISOString().slice(0, 10)
-
 test('an overdue task stays visible with a badge and a count', async ({ page, request }) => {
-  await request.post('/api/tasks', { headers: { 'x-editor': 'qa' }, data: { title: 'مهمة متأخرة للاختبار', priority: 9, urgency: 9, effort: 6, progress: 30, start: iso(-60), end: iso(-10) } })
+  await apiSignIn(request)
+  await request.post('/api/tasks', { data: { title: 'مهمة متأخرة للاختبار', priority: 9, urgency: 9, effort: 6, progress: 30, start: iso(-60), end: iso(-10) } })
   await page.goto('/')
   await expect(page.locator('table').getByText('مهمة متأخرة للاختبار')).toBeVisible()
   await expect(page.locator('table tr', { hasText: 'مهمة متأخرة للاختبار' }).getByText(/متأخرة \d|متأخرة [٠-٩]/)).toBeVisible()
@@ -121,47 +211,44 @@ test('an overdue task stays visible with a badge and a count', async ({ page, re
   await expect(page.locator('#timeline').getByText('مهمة متأخرة للاختبار')).toBeVisible()
 })
 
-test('a typed «(مشرف)» is not trusted, and team saves keep the VP draft flag', async ({ page, request }) => {
-  const state = await (await request.get('/api/state')).json()
-  const draft = state.tasks.find((t: { draft: boolean }) => t.draft)
-  // progress-only save from a visitor: the draft flag must stay
-  await request.patch(`/api/tasks/${draft.id}`, { headers: { 'x-editor': encodeURIComponent('سامي (مشرف)') }, data: { progress: 15, draft: false } })
-  const after = (await (await request.get('/api/state')).json()).tasks.find((t: { id: string }) => t.id === draft.id)
+test('team saves keep the VP draft flag; a VP field change confirms it', async ({ request }) => {
+  await apiSignIn(request, { username: 'sara', password: 'sara-pass-1' })
+  const draft = (await tasksOf(request)).find((t) => t.draft)!
+  // a progress-only save from an editor: the draft flag must stay
+  await request.patch(`/api/tasks/${draft.id}`, { data: { progress: 15, draft: false } })
+  const after = (await tasksOf(request)).find((t) => t.id === draft.id)!
   expect(after.draft).toBe(true)
-  expect(after.updatedBy).toBe('سامي')
-  // a VP field change confirms it
-  await request.patch(`/api/tasks/${draft.id}`, { headers: { 'x-editor': 'vp' }, data: { priority: 3, draft: false } })
-  expect((await (await request.get('/api/state')).json()).tasks.find((t: { id: string }) => t.id === draft.id).draft).toBe(false)
-  await page.goto('/')
+  expect(after.updatedBy).toBe('سارة')
+  await request.patch(`/api/tasks/${draft.id}`, { data: { priority: 3, draft: false } })
+  expect((await tasksOf(request)).find((t) => t.id === draft.id)!.draft).toBe(false)
 })
 
 test('admin settings being typed survive someone else saving a task', async ({ page, request }) => {
   await page.goto('/')
-  await admin(page)
+  await signIn(page)
   await page.getByLabel('اسم أخرى', { exact: true }).fill('مستوى قيد الكتابة')
-  const state = await (await request.get('/api/state')).json()
-  await request.patch(`/api/tasks/${state.tasks[0].id}`, { headers: { 'x-editor': 'other' }, data: { owner: `x-${Date.now()}` } })
+  await apiSignIn(request, { username: 'sara', password: 'sara-pass-1' })
+  await request.patch(`/api/tasks/${(await tasksOf(request))[0].id}`, { data: { owner: `x-${Date.now()}` } })
   await page.waitForTimeout(1500)
   await expect(page.getByLabel('اسم مستوى قيد الكتابة', { exact: true })).toHaveValue('مستوى قيد الكتابة')
 })
 
 test('a downloaded backup can be restored', async ({ page }) => {
   await page.goto('/')
-  await admin(page)
+  await signIn(page)
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: /نسخة احتياطية كاملة/ }).click()])
   const file = await dl.path()
   const before = JSON.parse(readFileSync(file, 'utf8')).tasks.map((t: { title: string }) => t.title).sort()
   // change the board, then restore
-  const added = await page.request.post('/api/tasks', { headers: { 'x-editor': 'qa' }, data: { title: 'ستختفي بعد الاسترجاع' } })
+  const added = await page.request.post('/api/tasks', { data: { title: 'ستختفي بعد الاسترجاع' } })
   expect(added.status()).toBe(201)
   await page.locator('#restore-file').setInputFiles(file)
   await page.getByRole('button', { name: 'نعم، استرجع' }).click()
-  // a restore is recorded under the admin's name: the first save asks for it
-  await page.getByLabel('الاسم').fill('المشرف')
-  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
   await expect(page.getByText('تم الاسترجاع من النسخة الاحتياطية')).toBeVisible()
-  const now = (await (await page.request.get('/api/state')).json()).tasks.map((t: { title: string }) => t.title).sort()
+  const now = (await tasksOf(page.request)).map((t) => t.title as string).sort()
   expect(now).toEqual(before)
+  // accounts are untouched by a restore
+  expect((await (await page.request.get('/api/users')).json()).some((u: { username: string }) => u.username === 'vp')).toBe(true)
 })
 
 test('two quick saves in a row both reach another open screen', async ({ browser }) => {
@@ -169,19 +256,21 @@ test('two quick saves in a row both reach another open screen', async ({ browser
   const b = await browser.newPage()
   await b.goto('/')
   await expect(b.getByText('مباشر', { exact: true })).toBeVisible()
-  const state = await (await a.request.get('/api/state')).json()
-  const t = state.tasks[0]
-  await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'q' }, data: { notes: 'أولى' } })
-  await a.request.patch(`/api/tasks/${t.id}`, { headers: { 'x-editor': 'q' }, data: { notes: 'الثانية' } })
+  // the watching screen is signed in too, so the notes are editable boxes
+  await apiSignIn(b.request)
+  await b.reload()
+  await apiSignIn(a.request)
+  const t = (await tasksOf(a.request))[0]
+  await a.request.patch(`/api/tasks/${t.id}`, { data: { notes: 'أولى' } })
+  await a.request.patch(`/api/tasks/${t.id}`, { data: { notes: 'الثانية' } })
   await expect(b.getByLabel(`ملاحظات — ${t.title}`)).toHaveValue('الثانية', { timeout: 10_000 })
 })
 
 test('the VP edits importance, urgency, date and notes straight from the table', async ({ page, request }) => {
   await page.goto('/')
+  await signIn(page, { username: 'vp', password: 'vp-pass-123' })
   const name = 'فيديو الدرونز'
   await page.getByLabel(`درجة الأهمية — ${name}`).selectOption('3')
-  await page.getByLabel('الاسم').fill('نائب الرئيس')
-  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
   await page.getByLabel(`مستوى الاستعجال — ${name}`).selectOption('9')
   await page.getByLabel(`النوع — ${name}`).selectOption('launch')
   await page.getByLabel(`التاريخ — ${name}`).fill('2026-12-01')
@@ -189,10 +278,10 @@ test('the VP edits importance, urgency, date and notes straight from the table',
   await page.getByLabel(`ملاحظات — ${name}`).press('Enter')
   await expect
     .poll(async () => {
-      const t = (await (await request.get('/api/state')).json()).tasks.find((x: { title: string }) => x.title === name)
-      return [t.priority, t.urgency, t.kind, t.end, t.notes].join('|')
+      const t = (await tasksOf(request)).find((x) => x.title === name)!
+      return [t.priority, t.urgency, t.kind, t.end, t.notes, t.updatedBy].join('|')
     })
-    .toBe('3|9|launch|2026-12-01|بعد اعتماد السيناريو')
+    .toBe('3|9|launch|2026-12-01|بعد اعتماد السيناريو|نائب الرئيس')
   // undated items are listed under the timeline instead of being guessed
   await expect(page.locator('#timeline')).toContainText('بلا تاريخ')
 })
@@ -207,10 +296,9 @@ test('matrix bubbles are numbered like the table, with a numbered key beside the
 })
 
 test('every item is in the matrix and on the timeline; awards sit at the president level', async ({ page, request }) => {
-  const { tasks } = await (await request.get('/api/state')).json()
-  const azri = tasks.find((t: { title: string }) => t.title === 'جائزة أزري')
-  expect(azri?.label).toBe('ceo')
-  expect(tasks.find((t: { title: string }) => t.title === 'جوائز Gartner').label).toBe('ceo')
+  const tasks = await tasksOf(request)
+  expect(tasks.find((t) => t.title === 'جائزة أزري')?.label).toBe('ceo')
+  expect(tasks.find((t) => t.title === 'جوائز Gartner')!.label).toBe('ceo')
   await page.goto('/')
   // every item has a numbered bubble: the unscored ones wait in the tray under the plot
   await expect(page.locator('#matrix svg g[role="button"]')).toHaveCount(tasks.length)
@@ -225,34 +313,31 @@ test('every item is in the matrix and on the timeline; awards sit at the preside
 
 test('the team sets the status, and the colour follows it', async ({ page, request }) => {
   await page.goto('/')
+  await signIn(page, { username: 'sara', password: 'sara-pass-1' })
   const name = 'فيديو الذكاء الاصطناعي'
   const status = page.getByLabel(`الحالة — ${name}`, { exact: true })
   await expect(status).toHaveValue('not-started')
   await status.selectOption('at-risk')
-  await page.getByLabel('الاسم').fill('الفريق')
-  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
-  await expect.poll(async () => (await (await request.get('/api/state')).json()).tasks.find((t: { title: string }) => t.title === name).status).toBe('at-risk')
+  await expect.poll(async () => (await tasksOf(request)).find((t) => t.title === name)!.status).toBe('at-risk')
   // complete is always green, and fills the progress
   await status.selectOption('done')
   await expect
     .poll(async () => {
-      const t = (await (await request.get('/api/state')).json()).tasks.find((x: { title: string }) => x.title === name)
+      const t = (await tasksOf(request)).find((x) => x.title === name)!
       return `${t.status}|${t.progress}`
     })
     .toBe('done|100')
-  expect((await request.patch(`/api/tasks/${(await (await request.get('/api/state')).json()).tasks[0].id}`, { headers: { 'x-editor': 'x' }, data: { status: 'nope' } })).status()).toBe(400)
+  expect((await page.request.patch(`/api/tasks/${(await tasksOf(request))[0].id}`, { data: { status: 'nope' } })).status()).toBe(400)
 })
 
-test('anyone can drag the list beside the matrix to change the order and the numbers', async ({ page, request }) => {
+test('a signed-in editor drags the list beside the matrix to change the order and the numbers', async ({ page, request }) => {
   await page.goto('/')
+  await signIn(page, { username: 'sara', password: 'sara-pass-1' })
   const key = page.getByRole('list', { name: 'أرقام البنود في المصفوفة' })
-  const order = async () =>
-    (await (await request.get('/api/state')).json()).tasks.sort((a: { position: number }, b: { position: number }) => a.position - b.position).map((t: { title: string }) => t.title)
+  const order = async () => (await tasksOf(request)).sort((a, b) => (a.position as number) - (b.position as number)).map((t) => t.title as string)
   const before = await order()
   // keyboard: the up arrow on item 3's grip makes it item 2
   await key.getByRole('button', { name: `تغيير ترتيب «${before[2]}»` }).press('ArrowUp')
-  await page.getByLabel('الاسم').fill('مرتّب')
-  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
   await expect.poll(order).toEqual([before[0], before[2], before[1], ...before.slice(3)])
   // the table (in list order) and the bubbles follow
   const row2 = page.locator('table tbody tr').nth(1)
@@ -260,8 +345,7 @@ test('anyone can drag the list beside the matrix to change the order and the num
   await expect(row2).toContainText(before[2])
   await expect(key.getByRole('button', { name: new RegExp(`^٢ ${before[2]}`) })).toBeVisible()
 
-  // mouse: drag item 1 below item 4 (once the name dialog has gone)
-  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // mouse: drag item 1 below item 4
   const now = await order()
   const grip = (await key.getByRole('button', { name: `تغيير ترتيب «${now[0]}»` }).boundingBox())!
   const target = (await key.getByRole('listitem').nth(3).boundingBox())!
@@ -278,12 +362,13 @@ test('anyone can drag the list beside the matrix to change the order and the num
   await page.mouse.up()
   await expect.poll(async () => (await order()).indexOf(now[0])).toBe(3)
   // numbers stay 1…n with no gaps
-  const positions = (await (await request.get('/api/state')).json()).tasks.map((t: { position: number }) => t.position).sort((a: number, b: number) => a - b)
-  expect(positions).toEqual(positions.map((_: number, i: number) => i + 1))
+  const positions = (await tasksOf(request)).map((t) => t.position as number).sort((a, b) => a - b)
+  expect(positions).toEqual(positions.map((_, i) => i + 1))
 })
 
 test('the timeline can switch to a month calendar', async ({ page, request }) => {
-  await request.post('/api/tasks', { headers: { 'x-editor': 'qa' }, data: { title: 'فعالية في التقويم', kind: 'event', end: iso(0) } })
+  await apiSignIn(request)
+  await request.post('/api/tasks', { data: { title: 'فعالية في التقويم', kind: 'event', end: iso(0) } })
   await page.goto('/')
   const tl = page.locator('#timeline')
   await tl.getByRole('tab', { name: 'تقويم' }).click()
@@ -304,16 +389,37 @@ test('the timeline can switch to a month calendar', async ({ page, request }) =>
   await expect(page.locator('#timeline').getByRole('tab', { name: 'تقويم' })).toHaveAttribute('aria-selected', 'true')
 })
 
+test('the calendar shows a whole year, and exports as a PDF', async ({ page }) => {
+  await page.goto('/')
+  const tl = page.locator('#timeline')
+  await tl.getByRole('tab', { name: 'تقويم' }).click()
+  await tl.getByRole('tab', { name: 'سنة' }).click()
+  const year = new Date().getFullYear()
+  const cal = tl.getByRole('region', { name: /^تقويم/ })
+  // January to December, each with its items listed under the month
+  await expect(cal.locator('section')).toHaveCount(12)
+  await expect(cal.locator('section').first()).toHaveAccessibleName(/^يناير/)
+  const thisMonth = cal.locator('section').nth(new Date().getMonth())
+  await expect(thisMonth.getByRole('button', { name: /فعالية في التقويم/ })).toBeVisible()
+  // the PDF: a real file, for visitors too
+  const [pdf] = await Promise.all([page.waitForEvent('download'), tl.getByRole('button', { name: 'تصدير PDF' }).click()])
+  expect(pdf.suggestedFilename()).toBe(`vp-calendar-${year}.pdf`)
+  expect(readFileSync(await pdf.path()).subarray(0, 5).toString()).toBe('%PDF-')
+  // clicking a month's name opens it
+  await cal.locator('section').nth(0).getByRole('button', { name: 'يناير' }).click()
+  await expect(tl.getByRole('tab', { name: 'شهر' })).toHaveAttribute('aria-selected', 'true')
+  await expect(tl.getByRole('heading', { name: new RegExp('يناير') })).toBeVisible()
+})
+
 test('the team marks an item ready for launch: a star by it, and a tile that lists the ready ones', async ({ page, request }) => {
   const name = 'فيديو الدرونز'
-  const ready = async () => (await (await request.get('/api/state')).json()).tasks.find((t: { title: string }) => t.title === name).ready
+  const ready = async () => (await tasksOf(request)).find((t) => t.title === name)!.ready
   await page.goto('/')
+  await signIn(page, { username: 'sara', password: 'sara-pass-1' })
   const tile = page.locator('#top dl > div').filter({ has: page.locator('dt', { hasText: 'جاهزة للإطلاق' }) })
   await expect(tile.locator('dd')).toHaveText('٠')
   // tick it straight in the table
   await page.getByLabel(`جاهز للإطلاق — ${name}`, { exact: true }).check()
-  await page.getByLabel('الاسم').fill('الفريق')
-  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
   await expect.poll(ready).toBe(true)
   await expect(tile.locator('dd')).toHaveText('١')
   // a star next to it in the table and in the list beside the matrix
@@ -341,24 +447,24 @@ test('in the calendar, dragging an item to another day changes its date', async 
   // a day in the same week, so it is always in the grid on screen
   const next = new Date(now)
   next.setDate(now.getDate() + (now.getDay() === 6 ? -1 : 1))
-  await request.post('/api/tasks', { headers: { 'x-editor': 'qa' }, data: { title, kind: 'event', end: day(now) } })
-  const end = async () => (await (await request.get('/api/state')).json()).tasks.find((t: { title: string }) => t.title === title).end
+  await apiSignIn(request)
+  await request.post('/api/tasks', { data: { title, kind: 'event', end: day(now) } })
+  const end = async () => (await tasksOf(request)).find((t) => t.title === title)!.end
 
   // tall enough that the month and the undated row are both on screen while dragging
   await page.setViewportSize({ width: 1280, height: 1400 })
   await page.goto('/')
+  await signIn(page, { username: 'sara', password: 'sara-pass-1' })
   const tl = page.locator('#timeline')
   await tl.getByRole('tab', { name: 'تقويم' }).click()
+  await tl.getByRole('tab', { name: 'شهر' }).click()
   await tl.scrollIntoViewIfNeeded()
   const cal = tl.getByRole('region', { name: /^تقويم/ })
   await cal.getByRole('button', { name: title }).dragTo(cal.locator(`[data-day="${day(next)}"]`))
-  await page.getByLabel('الاسم').fill('المنسق')
-  await page.getByRole('button', { name: 'متابعة الحفظ' }).click()
   await expect.poll(end).toBe(day(next))
   await expect(cal.locator(`[data-day="${day(next)}"]`).getByRole('button', { name: title })).toBeVisible()
 
   // onto «بلا تاريخ بعد»: the date goes; from there onto a day: it comes back
-  await expect(page.getByRole('dialog')).toHaveCount(0)
   await cal.getByRole('button', { name: title }).dragTo(tl.getByLabel('بنود بلا تاريخ'))
   await expect.poll(end).toBe('')
   await tl.getByLabel('بنود بلا تاريخ').getByRole('button', { name: title }).dragTo(cal.locator(`[data-day="${day(now)}"]`))
