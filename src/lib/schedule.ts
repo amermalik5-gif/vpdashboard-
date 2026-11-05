@@ -21,12 +21,24 @@ export const today = () => {
 export const weekStart = (d: Date) => addDays(d, -d.getDay())
 export const daysBetween = (a: Date, b: Date) => Math.round((b.getTime() - a.getTime()) / 864e5)
 
-/** Start and end of a task. Without an end date it runs start + expected time (2 weeks if none). */
+/** The calendar day something was added (for items without a start date). */
+const dayOf = (ms: number) => {
+  const d = new Date(ms)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+/**
+ * Start and end of a task. A date the VP set always counts as it is (even before the start, so
+ * it can be late); without one, the end is estimated: start + expected time (2 weeks if none).
+ * With no start either, the estimate runs from the day the item was added, never from today,
+ * so it doesn't drift and can still fall due.
+ */
 export function span(t: Task): [Date, Date] {
-  const s = parseDate(t.start) ?? today()
-  let e = parseDate(t.end)
-  if (!e) e = addDays(s, t.expectation ? EXPECTATIONS[t.expectation].days : 14)
-  return [s, e < s ? s : e]
+  const s = parseDate(t.start) ?? dayOf(t.createdAt)
+  const e = parseDate(t.end)
+  if (e) return [e < s ? e : s, e]
+  return [s, addDays(s, t.expectation ? EXPECTATIONS[t.expectation].days : 14)]
 }
 
 /* ---------- status ---------- */
@@ -39,18 +51,17 @@ export const isDone = (t: Task) => t.status === 'done' || (!t.status && t.progre
 export const isOpen = (t: Task) => !isDone(t)
 /** Ticked «جاهز للإطلاق» and not launched yet (once complete, the star has done its job). */
 export const isReady = (t: Task) => t.ready && isOpen(t)
-export const statusOf = (t: Task): Status => {
-  if (isDone(t)) return 'done'
-  if (isOverdue(t)) return 'late'
-  if (t.status) return t.status
-  return t.progress > 0 ? 'on-track' : 'not-started'
-}
-export const STATUS: Record<Status, { name: string; color: string }> = {
-  'not-started': { name: TASK_STATUSES['not-started'], color: 'var(--status-not-started)' },
-  'on-track': { name: TASK_STATUSES['on-track'], color: 'var(--status-on-track)' },
-  'at-risk': { name: TASK_STATUSES['at-risk'], color: 'var(--status-at-risk)' },
-  late: { name: TASK_STATUSES.late, color: 'var(--status-late)' },
-  done: { name: TASK_STATUSES.done, color: 'var(--status-done)' },
+/** The status the team chose (what the drop-downs show). An overdue item keeps it, though it counts as «متأخرة». */
+export const chosenStatus = (t: Task): Status => (isDone(t) ? 'done' : t.status || (t.progress > 0 ? 'on-track' : 'not-started'))
+/** The status the board shows: complete, else overdue («متأخرة»), else the chosen one. */
+export const statusOf = (t: Task): Status => (isDone(t) ? 'done' : isOverdue(t) ? 'late' : chosenStatus(t))
+/** `ink`: the colour of a number written on the status colour (navy on the light ones, so it stays readable). */
+export const STATUS: Record<Status, { name: string; color: string; ink: string }> = {
+  'not-started': { name: TASK_STATUSES['not-started'], color: 'var(--status-not-started)', ink: 'var(--nwc-blue-900)' },
+  'on-track': { name: TASK_STATUSES['on-track'], color: 'var(--status-on-track)', ink: 'var(--nwc-blue-900)' },
+  'at-risk': { name: TASK_STATUSES['at-risk'], color: 'var(--status-at-risk)', ink: 'var(--nwc-blue-900)' },
+  late: { name: TASK_STATUSES.late, color: 'var(--status-late)', ink: '#fff' },
+  done: { name: TASK_STATUSES.done, color: 'var(--status-done)', ink: '#fff' },
 }
 /** The patch for a new status: complete also fills the progress. */
 export const statusPatch = (status: Status): Partial<Task> => (status === 'done' ? { status, progress: 100 } : { status })

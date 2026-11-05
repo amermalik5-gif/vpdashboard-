@@ -1,17 +1,21 @@
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { randomBytes } from 'node:crypto'
 import { db, DB_FILE } from './db.ts'
+import { riyadhDay, riyadhStamp } from './time.ts'
 
 /** Snapshots live next to the database, on the same Railway volume. */
 export const BACKUP_DIR = join(dirname(DB_FILE), 'backups')
 const KEEP_DAILY = 14
 
-const stamp = (d = new Date()) => d.toISOString().slice(0, 19).replace(/[:T]/g, '-')
 
-/** A consistent copy of the live database (SQLite VACUUM INTO). Returns the file path. */
+/**
+ * A consistent copy of the live database (SQLite VACUUM INTO). Returns the file path. Named by the
+ * Riyadh time to the millisecond plus a random tail, so two copies in the same second never clash.
+ */
 export function snapshot(prefix: string): string {
   mkdirSync(BACKUP_DIR, { recursive: true })
-  const file = join(BACKUP_DIR, `${prefix}-${stamp()}.db`)
+  const file = join(BACKUP_DIR, `${prefix}-${riyadhStamp()}-${randomBytes(2).toString('hex')}.db`)
   db.prepare('VACUUM INTO ?').run(file)
   return file
 }
@@ -20,7 +24,7 @@ export function snapshot(prefix: string): string {
 export function dailyBackup() {
   try {
     mkdirSync(BACKUP_DIR, { recursive: true })
-    const today = new Date().toISOString().slice(0, 10)
+    const today = riyadhDay()
     const daily = readdirSync(BACKUP_DIR)
       .filter((f) => f.startsWith('daily-') && f.endsWith('.db'))
       .sort()

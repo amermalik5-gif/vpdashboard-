@@ -26,7 +26,7 @@ interface BoardApi {
   openTask: (id: string | null) => void
   editing: { open: boolean; id: string | null }
   closeTask: () => void
-  toast: (text: string, tone?: Toast['tone']) => void
+  toast: (text: string, tone?: Toast['tone'], ms?: number) => void
   toasts: Toast[]
   /** Runs a save: shows the server's message on failure, refreshes on success. */
   run: <T>(p: () => Promise<T>, done?: string) => Promise<T | undefined>
@@ -51,10 +51,10 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   const [readyOnly, setReadyOnly] = useState(false)
   const seq = useRef(0)
 
-  const toast = useCallback((text: string, tone: Toast['tone'] = 'ok') => {
+  const toast = useCallback((text: string, tone: Toast['tone'] = 'ok', ms = 3200) => {
     const id = ++seq.current
-    setToasts((t) => [...t, { id, text, tone }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200)
+    setToasts((t) => [...t.filter((x) => x.text !== text), { id, text, tone }])
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), ms)
   }, [])
 
   const run = useCallback(

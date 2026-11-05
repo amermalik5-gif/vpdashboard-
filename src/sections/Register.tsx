@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, Plus, Search, X } from 'lucide-react'
+import { DateInput } from '@/components/DateInput'
 import { ReadyStar } from '@/components/ReadyStar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -8,8 +9,8 @@ import { Tabs } from '@/components/ui/Tabs'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
-import { fmtDay, toArabicDigits } from '@/lib/format'
-import { STATUS, daysOverdue, hasDate, isOverdue, isReady, itemNumbers, parseDate, progressPatch, span, statusOf, statusPatch, type Status } from '@/lib/schedule'
+import { fmtDay, fmtWhen, toArabicDigits } from '@/lib/format'
+import { STATUS, chosenStatus, daysOverdue, hasDate, isOverdue, isReady, itemNumbers, parseDate, progressPatch, span, statusOf, statusPatch, type Status } from '@/lib/schedule'
 import { ITEM_KINDS, TASK_STATUSES, type ItemKind, type Task } from '@/lib/types'
 
 type Sort = 'order' | 'rank' | 'late' | 'end' | 'progress' | 'recent'
@@ -51,7 +52,7 @@ function Overdue({ t, className }: { t: Task; className?: string }) {
   )
 }
 
-const Num = ({ v }: { v: number | null }) => <span className="font-ui tabular">{v == null ? '–' : toArabicDigits(v)}</span>
+const Num = ({ v }: { v: number | null }) => <span className="font-ui tabular">{v == null ? '—' : toArabicDigits(v)}</span>
 
 /* ---------- cells edited in place (plain text for visitors, who can only view) ---------- */
 /** Which column groups are read-only for the signed-in account. */
@@ -80,7 +81,7 @@ function SelectCell({
   if (team ? locked.team : locked.vp)
     return (
       <span aria-label={label} className={cn(textCls, className)}>
-        {options.find(([v]) => v === value)?.[1] ?? '–'}
+        {options.find(([v]) => v === value)?.[1] ?? '—'}
       </span>
     )
   return (
@@ -94,7 +95,7 @@ function SelectCell({
   )
 }
 
-const numOptions = (values: number[], suffix = ''): [string, string][] => [['', '–'], ...values.map((n): [string, string] => [String(n), `${toArabicDigits(n)}${suffix}`])]
+const numOptions = (values: number[], suffix = ''): [string, string][] => [['', '—'], ...values.map((n): [string, string] => [String(n), `${toArabicDigits(n)}${suffix}`])]
 
 /** Free text: saved when the field loses focus or on Enter, never on every keystroke. */
 function TextCell({ value, label, placeholder, onSave }: { value: string; label: string; placeholder?: string; onSave: (v: string) => void }) {
@@ -107,7 +108,7 @@ function TextCell({ value, label, placeholder, onSave }: { value: string; label:
   if (locked)
     return (
       <span aria-label={label} title={value} className={cn(textCls, 'truncate text-fg-secondary')}>
-        {value || '–'}
+        {value || '—'}
       </span>
     )
   const commit = () => {
@@ -117,6 +118,7 @@ function TextCell({ value, label, placeholder, onSave }: { value: string; label:
   return (
     <input
       aria-label={label}
+      title={value || undefined}
       className={cellCls}
       value={draft}
       placeholder={placeholder}
@@ -148,11 +150,43 @@ function Progress({ t }: { t: Task }) {
   )
 }
 
-const KIND_OPTIONS: [string, string][] = [['', '–'], ...(Object.entries(ITEM_KINDS) as [string, string][])]
+const KIND_OPTIONS: [string, string][] = [['', '—'], ...(Object.entries(ITEM_KINDS) as [string, string][])]
 const STATUS_OPTIONS = Object.entries(TASK_STATUSES) as [Status, string][]
 
+/**
+ * The wide table's scroller. When the columns don't all fit (13" laptops, tablets), a fade on the
+ * far side and a short note say there is more to scroll to; the number and name stay pinned.
+ */
+function TableScroller({ children }: { children: React.ReactNode }) {
+  const box = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState(false)
+  const check = () => {
+    const el = box.current
+    if (!el) return
+    // right-to-left: scrollLeft runs from 0 (start) to a negative end
+    setMore(el.scrollWidth - el.clientWidth - Math.abs(el.scrollLeft) > 4)
+  }
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
+    return () => ro.disconnect()
+  }, [])
+  return (
+    <div className="relative hidden lg:block">
+      {more && <p className="px-5 pb-2 pt-1 text-2xs text-fg-tertiary">← مرّر الجدول جانبيًا لرؤية بقية الأعمدة</p>}
+      <div ref={box} onScroll={check} className="overflow-x-auto">
+        {children}
+      </div>
+      {more && <span aria-hidden className="pointer-events-none absolute inset-y-0 start-auto end-0 w-10 bg-gradient-to-r from-surface to-transparent" />}
+    </div>
+  )
+}
+
 export function Register() {
-  const { state, labels, labelName, openTask, run, patchLocal, readyOnly, setReadyOnly, canEdit, canEditAll } = useBoardCtx()
+  const { state, labels, labelName, openTask, run, toast, patchLocal, readyOnly, setReadyOnly, canEdit, canEditAll } = useBoardCtx()
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<Sort>('order')
   const tasks = useMemo(() => {
@@ -168,7 +202,8 @@ export function Register() {
   // every cell saves on its own: shown at once, then confirmed by the server
   const save = (t: Task, patch: Partial<Task>) => {
     patchLocal(t.id, patch)
-    void run(() => api.updateTask(t.id, patch))
+    // a short «حُفظ» so an edit in place is seen to be saved (a failure says why instead)
+    void run(() => api.updateTask(t.id, patch)).then((ok) => ok && toast('حُفظ', 'ok', 1600))
   }
   const num = (v: string) => (v === '' ? null : Number(v))
 
@@ -204,23 +239,22 @@ export function Register() {
 
       {/* wide screens: one table, every value editable in place */}
       <Locked.Provider value={{ vp: !canEditAll, team: !canEdit }}>
-      <div className="hidden overflow-x-auto lg:block">
-        <table className="w-full min-w-[1280px] border-collapse text-sm">
+      <TableScroller>
+        <table className="w-full min-w-[1250px] border-collapse text-sm">
           <thead>
             <tr className="text-xs text-fg-tertiary">
-              <th className="w-10 py-3 ps-4 text-center font-medium">#</th>
-              <th className="w-6 py-3 font-medium" aria-label="لون الحالة" />
-              <th className="min-w-[230px] py-3 text-start font-medium">المهمة / الفعالية</th>
-              <th className="w-[140px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">النوع</th>
-              <th className="w-[130px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">المستوى</th>
-              <th className="w-[74px] bg-blue-50/60 py-3 text-center font-medium text-blue-700">الأهمية</th>
-              <th className="w-[74px] bg-blue-50/60 py-3 text-center font-medium text-blue-700">الاستعجال</th>
-              <th className="w-[148px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">التاريخ</th>
-              <th className="w-[66px] py-3 text-center font-medium">الجهد</th>
-              <th className="w-[84px] py-3 text-center font-medium">الإنجاز</th>
-              <th className="w-[128px] py-3 text-start font-medium">الحالة</th>
-              <th className="w-[64px] py-3 text-center font-medium">جاهز للإطلاق</th>
-              <th className="min-w-[170px] bg-blue-50/60 py-3 pe-4 text-start font-medium text-blue-700">ملاحظات</th>
+              <th className="sticky start-0 z-10 w-[52px] bg-surface py-3 ps-4 text-center font-medium">#</th>
+              <th className="sticky start-[52px] z-10 min-w-[190px] bg-surface py-3 pe-3 text-start font-medium">المهمة / الفعالية</th>
+              <th className="w-[118px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">النوع</th>
+              <th className="w-[186px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">المستوى</th>
+              <th className="w-[66px] bg-blue-50/60 py-3 text-center font-medium text-blue-700">الأهمية</th>
+              <th className="w-[66px] bg-blue-50/60 py-3 text-center font-medium text-blue-700">الاستعجال</th>
+              <th className="w-[134px] bg-blue-50/60 py-3 text-start font-medium text-blue-700">التاريخ</th>
+              <th className="w-[62px] py-3 text-center font-medium">الجهد</th>
+              <th className="w-[80px] py-3 text-center font-medium">الإنجاز</th>
+              <th className="w-[124px] py-3 text-start font-medium">الحالة</th>
+              <th className="w-[56px] py-3 text-center font-medium">جاهز للإطلاق</th>
+              <th className="min-w-[150px] bg-blue-50/60 py-3 pe-4 text-start font-medium text-blue-700">ملاحظات</th>
             </tr>
           </thead>
           <tbody>
@@ -228,12 +262,14 @@ export function Register() {
               const estimated = !t.end && hasDate(t)
               const name = t.title
               return (
-                <tr key={t.id} className="border-t border-line-subtle align-middle transition-colors duration-fast hover:bg-neutral-25">
-                  <td className="py-2 ps-4 text-center font-ui text-sm font-semibold tabular text-fg-secondary">{toArabicDigits(numbers.get(t.id) ?? 0)}</td>
-                  <td className="py-2">
-                    <span className="block h-3 w-3 rounded-full" style={{ background: STATUS[statusOf(t)].color }} title={STATUS[statusOf(t)].name} />
+                <tr key={t.id} className="group border-t border-line-subtle align-middle transition-colors duration-fast hover:bg-neutral-25">
+                  <td className="sticky start-0 z-[1] bg-surface py-2 ps-4 font-ui text-sm font-semibold tabular text-fg-secondary group-hover:bg-neutral-25">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-5 text-center">{toArabicDigits(numbers.get(t.id) ?? 0)}</span>
+                      <span className="block h-3 w-3 shrink-0 rounded-full" style={{ background: STATUS[statusOf(t)].color }} title={STATUS[statusOf(t)].name} />
+                    </span>
                   </td>
-                  <td className="py-2 pe-3">
+                  <td className="sticky start-[52px] z-[1] bg-surface py-2 pe-3 shadow-[-8px_0_8px_-8px_rgba(16,24,40,0.12)] group-hover:bg-neutral-25">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <button
                         type="button"
@@ -260,7 +296,7 @@ export function Register() {
                     <SelectCell
                       label={`المستوى — ${name}`}
                       value={t.label}
-                      options={[['', '–'], ...labels.map((l): [string, string] => [l.id, l.name])]}
+                      options={[['', '—'], ...labels.map((l): [string, string] => [l.id, l.name])]}
                       onSave={(v) => save(t, { label: v })}
                     />
                   </td>
@@ -284,22 +320,13 @@ export function Register() {
                   </td>
                   <td className="bg-blue-50/30 py-2">
                     {canEditAll ? (
-                      <input
-                        type="date"
-                        aria-label={`التاريخ — ${name}`}
-                        className={cn(cellCls, 'tabular')}
-                        value={t.end}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          if (v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v)) save(t, { end: v })
-                        }}
-                      />
+                      <DateInput label={`التاريخ — ${name}`} look={cellCls} value={t.end} onChange={(v) => save(t, { end: v })} />
                     ) : (
                       <span aria-label={`التاريخ — ${name}`} className={textCls}>
-                        {t.end ? fmtDay(parseDate(t.end)!) : '–'}
+                        {t.end ? fmtDay(parseDate(t.end)!) : '—'}
                       </span>
                     )}
-                    {estimated && <p className="px-2 text-2xs text-fg-tertiary">تقديري: {fmtDay(span(t)[1])}</p>}
+                    {estimated && <p className="px-2 text-2xs text-fg-tertiary">تقديري: {fmtWhen(span(t)[1])}</p>}
                   </td>
                   <td className="py-2">
                     <SelectCell
@@ -322,7 +349,7 @@ export function Register() {
                     />
                   </td>
                   <td className="py-2">
-                    <SelectCell team className="min-w-[118px]" label={`الحالة — ${name}`} value={statusOf(t)} options={STATUS_OPTIONS} onSave={(v) => save(t, statusPatch(v as Status))} />
+                    <SelectCell team className="min-w-[118px]" label={`الحالة — ${name}`} value={chosenStatus(t)} options={STATUS_OPTIONS} onSave={(v) => save(t, statusPatch(v as Status))} />
                   </td>
                   <td className="py-2 text-center">
                     <input
@@ -342,7 +369,7 @@ export function Register() {
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroller>
       </Locked.Provider>
 
       {/* phones and tablets: cards that open the full form */}
@@ -397,7 +424,7 @@ export function Register() {
                     </div>
                     <div>
                       <dt>التاريخ</dt>
-                      <dd className="text-sm text-fg-primary">{hasDate(t) ? fmtDay(span(t)[1]) : '–'}</dd>
+                      <dd className="text-sm text-fg-primary">{hasDate(t) ? fmtWhen(span(t)[1]) : '—'}</dd>
                     </div>
                   </dl>
                   <div className="mt-3">

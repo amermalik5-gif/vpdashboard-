@@ -39,7 +39,8 @@ const config: Config = {
       tertiary: ramp('tertiary', [500, 600, 700, 900]),
       gold: { 500: hex('nwc-gold-500') },
       brand: { DEFAULT: hex('nwc-blue-500'), hover: hex('nwc-blue-600'), pressed: hex('nwc-blue-700'), soft: '#f0f7ff', dark: hex('nwc-blue-900') },
-      fg: { primary: hex('neutral-800'), secondary: hex('neutral-600'), tertiary: hex('tertiary-500'), muted: hex('neutral-400') },
+      // captions and placeholders pass 4.5:1 on white (WCAG AA for small text)
+      fg: { primary: hex('neutral-800'), secondary: hex('neutral-600'), tertiary: hex('tertiary-650'), muted: hex('neutral-500') },
       page: '#fafafc',
       surface: '#ffffff',
       line: { subtle: hex('neutral-200'), DEFAULT: hex('neutral-300'), strong: hex('neutral-500') },

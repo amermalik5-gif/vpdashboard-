@@ -11,6 +11,8 @@ const timeFmt = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-arab', { day: 'nu
 export const fmtDay = (d: Date) => dayMonth.format(d)
 export const fmtDate = (d: Date) => dayMonthYear.format(d)
 export const fmtMonth = (d: Date) => monthShort.format(d)
+/** «٥ نوفمبر» this year, «٣١ مارس ٢٠٢٧» otherwise. */
+export const fmtWhen = (d: Date) => (d.getFullYear() === new Date().getFullYear() ? fmtDay(d) : fmtDate(d))
 export const fmtTime = (ms: number) => timeFmt.format(new Date(ms))
 
 /** «بعد ٢٢ يومًا» / «اليوم» / «منذ ٣ أيام» */
@@ -21,6 +23,15 @@ export function relDays(n: number): string {
   const a = Math.abs(n)
   const unit = a === 2 ? 'يومين' : a <= 10 ? `${toArabicDigits(a)} أيام` : `${toArabicDigits(a)} يومًا`
   return n > 0 ? `بعد ${unit}` : `منذ ${unit}`
+}
+
+/** Arabic counted noun for items: «بند واحد»، «بندان»، «٣ بنود»، «١١ بندًا»، «١٠٠ بند». */
+export function countItems(n: number): string {
+  if (n === 0) return 'لا بنود'
+  if (n === 1) return 'بند واحد'
+  if (n === 2) return 'بندان'
+  const m = n % 100
+  return `${toArabicDigits(n)} ${m >= 3 && m <= 10 ? 'بنود' : m >= 11 ? 'بندًا' : 'بند'}`
 }
 
 /** Arabic counted noun for tasks: 1 → «مهمة واحدة», 2 → «مهمتان», 3–10 → «مهام», 11+ → «مهمة». */

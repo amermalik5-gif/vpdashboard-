@@ -113,6 +113,7 @@
   /* Tertiary (Figma: "Tertiary" ramp, verified 2026-05-07) */
   --tertiary-500: #7a95ac;   /* Figma Tertiary-500 */
   --tertiary-600: #6f889d;   /* Figma Tertiary-600 */
+  --tertiary-650: #5f7487;   /* captions: 4.8:1 on white, so small text stays readable */
   --tertiary-700: #576a7a;   /* Figma Tertiary-700 */
   --tertiary-900: #333f48;   /* Figma Tertiary-900 */
 
@@ -145,8 +146,8 @@
   /* Foreground / text */
   --fg-primary:    var(--neutral-800);     /* #2c3138 — main text */
   --fg-secondary:  var(--neutral-600);     /* #576a7a — body */
-  --fg-tertiary:   var(--tertiary-500);    /* #6f889d — meta/caption */
-  --fg-muted:      var(--neutral-400);
+  --fg-tertiary:   var(--tertiary-650);    /* meta/caption (4.8:1 on white) */
+  --fg-muted:      var(--neutral-500);     /* placeholders, empty values (4.7:1 on white) */
   --fg-disabled:   var(--neutral-300);
   --fg-on-brand:   #ffffff;
   --fg-link:       var(--nwc-blue-500);

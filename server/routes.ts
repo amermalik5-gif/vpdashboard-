@@ -1,8 +1,9 @@
 import { Router, type Request, type Response } from 'express'
-import { editsAll, EXPECTATIONS, EVENT_FIELDS, ITEM_KINDS, ROLES, TASK_FIELDS, TASK_STATUSES, TEAM_FIELDS, type Role, type EventItem, type Option, type Settings, type Task } from '../src/lib/types.ts'
+import { editsAll, EXPECTATIONS, EVENT_FIELDS, FIELD_NAMES, ITEM_KINDS, ROLES, TASK_FIELDS, TASK_STATUSES, TEAM_FIELDS, type Role, type EventItem, type Option, type Settings, type Task } from '../src/lib/types.ts'
 import * as store from './db.ts'
 import { snapshot } from './backup.ts'
-import { ADMIN_USERNAME, checkPassword, clearSessionCookie, currentUser, hashPassword, rateLimit, requireAdmin, requireEditor, requireVP, setSessionCookie, verifyPassword } from './auth.ts'
+import { ADMIN_NAME, ADMIN_USERNAME, checkPassword, currentUser, endSession, hashPassword, rateLimit, requireAdmin, requireEditor, requireVP, startSession, upgradeSession, verifyPassword } from './auth.ts'
+import { riyadhDay, riyadhTime } from './time.ts'
 
 /* ---------- live updates (Server-Sent Events) ---------- */
 let version = Date.now()
@@ -19,23 +20,30 @@ setInterval(() => {
 class Invalid extends Error {}
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 
+/** Errors name the field in Arabic, as the form does («التاريخ: تاريخ غير صالح.»). */
+const shown = (field: string) => FIELD_NAMES[field] ?? field
 const str = (v: unknown, max: number, field: string) => {
   if (v == null) return ''
-  if (typeof v !== 'string') throw new Invalid(`${field}: قيمة غير صالحة.`)
+  if (typeof v !== 'string') throw new Invalid(`${shown(field)}: قيمة غير صالحة.`)
   return v.trim().slice(0, max)
 }
 const intIn = (v: unknown, lo: number, hi: number, field: string, nullable = true): number | null => {
   if (v === null || v === '' || v === undefined) {
     if (nullable) return null
-    throw new Invalid(`${field}: مطلوب.`)
+    throw new Invalid(`${shown(field)}: مطلوب.`)
   }
   const n = Number(v)
-  if (!Number.isFinite(n)) throw new Invalid(`${field}: يجب أن يكون رقمًا.`)
+  if (!Number.isFinite(n)) throw new Invalid(`${shown(field)}: يجب أن يكون رقمًا.`)
   return Math.round(Math.min(hi, Math.max(lo, n)))
+}
+/** A real calendar day: «2026-02-31» is refused rather than rolled over to March. */
+const realDay = (s: string) => {
+  const d = new Date(`${s}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
 }
 const date = (v: unknown, field: string) => {
   const s = str(v, 10, field)
-  if (s && (!DATE.test(s) || Number.isNaN(Date.parse(s)))) throw new Invalid(`${field}: تاريخ غير صالح.`)
+  if (s && (!DATE.test(s) || !realDay(s))) throw new Invalid(`${shown(field)}: تاريخ غير صالح.`)
   return s
 }
 
@@ -132,6 +140,8 @@ const VP_FIELDS = ['priority', 'urgency', 'expectation', 'category', 'label', 'k
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
 export const api = Router()
+// sessions signed before 5 Nov 2026 move to the server's sessions on the next visit
+api.use(upgradeSession)
 const writes = rateLimit(120, 60_000, 'تعديلات كثيرة خلال دقيقة. انتظر قليلًا ثم حاول مجددًا.')
 
 api.get('/state', (req, res) => {
@@ -153,7 +163,7 @@ api.get('/audit', requireAdmin, (req, res) => {
 })
 
 /* ---------- backups (admin): a full JSON copy, and the tasks as a spreadsheet ---------- */
-const stamp = () => new Date().toISOString().slice(0, 10)
+const stamp = () => riyadhDay()
 
 api.get('/backup', requireAdmin, (_req, res) => {
   const body = {
@@ -170,14 +180,16 @@ api.get('/backup', requireAdmin, (_req, res) => {
 })
 
 const csvCell = (v: unknown) => {
-  const s = v == null ? '' : String(v)
+  let s = v == null ? '' : String(v)
+  // text that starts like a formula (= + - @) would run as one in Excel: keep it as text
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
 api.get('/backup/tasks.csv', requireAdmin, (_req, res) => {
   const { labels } = store.getSettings()
   const labelName = (id: string) => labels.find((l) => l.id === id)?.name ?? id
-  const head = ['المهمة / الفعالية', 'النوع', 'الفئة', 'المستوى', 'درجة الأهمية', 'مستوى الاستعجال', 'المدة المتوقعة', 'الجهد', 'نسبة الإنجاز', 'الحالة', 'جاهز للإطلاق', 'تاريخ البدء', 'التاريخ', 'المسؤول', 'الملاحظات', 'بانتظار التأكيد', 'آخر تعديل بواسطة', 'آخر تعديل']
+  const head = ['المهمة / الفعالية', 'النوع', 'الفئة', 'المستوى', 'درجة الأهمية', 'مستوى الاستعجال', 'المدة المتوقعة', 'الجهد', 'نسبة الإنجاز', 'الحالة', 'جاهز للإطلاق', 'تاريخ البدء', 'التاريخ', 'المسؤول', 'الملاحظات', 'بانتظار التأكيد', 'آخر تعديل بواسطة', 'آخر تعديل (بتوقيت الرياض)']
   const rows = store.listTasks().map((t) => [
     t.title,
     t.kind ? ITEM_KINDS[t.kind] : '',
@@ -196,7 +208,7 @@ api.get('/backup/tasks.csv', requireAdmin, (_req, res) => {
     t.notes,
     t.draft ? 'نعم' : 'لا',
     t.updatedBy,
-    new Date(t.updatedAt).toISOString().replace('T', ' ').slice(0, 16),
+    riyadhTime(t.updatedAt),
   ])
   // UTF-8 BOM so Excel opens the Arabic text correctly
   const csv = '﻿' + [head, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n')
@@ -220,17 +232,25 @@ api.post(
       return x
     }
     const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : Date.now())
+    const who = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 60) : by)
+    const ids = new Set<string>()
+    const unique = (v: unknown) => {
+      const x = id(v)
+      if (ids.has(x)) throw new Invalid('في الملف بندان بالمعرّف نفسه. هذا الملف ليس نسخة سليمة.')
+      ids.add(x)
+      return x
+    }
     const tasks = b.tasks.map((raw) => {
       const t = pick(raw, TASK_FIELDS, cleanTaskField) as Task
       if (!t.title) throw new Invalid('مهمة بلا عنوان في الملف.')
       const r = raw as Record<string, unknown>
-      return { ...t, id: id(r.id), createdAt: num(r.createdAt), position: typeof r.position === 'number' && Number.isFinite(r.position) ? Math.round(r.position) : undefined, progress: t.progress ?? 0, draft: !!t.draft }
+      return { ...t, id: unique(r.id), createdAt: num(r.createdAt), updatedAt: num(r.updatedAt), updatedBy: who(r.updatedBy), position: typeof r.position === 'number' && Number.isFinite(r.position) ? Math.round(r.position) : undefined, progress: t.progress ?? 0, draft: !!t.draft }
     })
     const events = b.events.map((raw) => {
       const e = pick(raw, EVENT_FIELDS, cleanEventField) as EventItem
       if (!e.name) throw new Invalid('فعالية بلا اسم في الملف.')
       const r = raw as Record<string, unknown>
-      return { ...e, id: id(r.id), createdAt: num(r.createdAt), draft: !!e.draft }
+      return { ...e, id: unique(r.id), createdAt: num(r.createdAt), updatedAt: num(r.updatedAt), updatedBy: who(r.updatedBy), draft: !!e.draft }
     })
     const st = b.settings
     const settings: Partial<Settings> = {
@@ -245,12 +265,12 @@ api.post(
       store.db.prepare('DELETE FROM events').run()
       for (const t of tasks)
         store.insertTask(
-          { id: t.id, createdAt: t.createdAt, title: t.title, kind: t.kind ?? '', category: t.category ?? '', label: t.label ?? '', priority: t.priority ?? null, urgency: t.urgency ?? null, expectation: t.expectation ?? '', effort: t.effort ?? null, progress: t.progress, status: t.status ?? '', ready: !!t.ready, start: t.start ?? '', end: t.end ?? '', owner: t.owner ?? '', notes: t.notes ?? '', draft: t.draft, position: t.position },
+          { id: t.id, createdAt: t.createdAt, title: t.title, kind: t.kind ?? '', category: t.category ?? '', label: t.label ?? '', priority: t.priority ?? null, urgency: t.urgency ?? null, expectation: t.expectation ?? '', effort: t.effort ?? null, progress: t.progress, status: t.status ?? '', ready: !!t.ready, start: t.start ?? '', end: t.end ?? '', owner: t.owner ?? '', notes: t.notes ?? '', draft: t.draft, position: t.position, updatedAt: t.updatedAt, updatedBy: t.updatedBy },
           by,
         )
       // events from backups made before events and tasks were merged become items of type «فعالية»
       for (const e of events)
-        store.insertTask({ id: e.id, createdAt: e.createdAt, title: e.name, kind: 'event', category: '', label: '', priority: null, urgency: null, expectation: '', effort: null, progress: 0, start: '', end: e.date ?? '', owner: '', notes: e.notes ?? '', draft: e.draft }, by)
+        store.insertTask({ id: e.id, createdAt: e.createdAt, title: e.name, kind: 'event', category: '', label: '', priority: null, urgency: null, expectation: '', effort: null, progress: 0, start: '', end: e.date ?? '', owner: '', notes: e.notes ?? '', draft: e.draft, updatedAt: e.updatedAt, updatedBy: e.updatedBy }, by)
       for (const [k, v] of Object.entries(settings)) store.setSetting(k as keyof Settings, v)
       store.audit({ entity: 'settings', entityId: 'backup', entityTitle: 'استرجاع نسخة احتياطية', action: 'restore', field: '', old: null, new: { tasks: tasks.length, events: events.length }, by })
     })()
@@ -282,7 +302,7 @@ api.post(
         progress: f.progress ?? 0,
         status: f.status ?? '',
         ready: !!f.ready,
-        start: f.start || new Date().toISOString().slice(0, 10),
+        start: f.start || riyadhDay(),
         end: f.end ?? '',
         owner: f.owner ?? '',
         notes: f.notes ?? '',
@@ -465,18 +485,19 @@ api.post(
     const by = editor(req)
     const entry = store.getAudit(Number(req.params.id))
     if (!entry) return res.status(404).json({ error: 'لم يُعثر على هذا التعديل.' })
+    if (entry.field === 'user') throw new Invalid('تعديلات الحسابات لا تُسترجع من السجل. عدّل الحساب من قائمة المستخدمين.')
     store.db.transaction(() => {
       if (entry.action === 'delete') {
         if (entry.entity === 'task') {
           if (store.getTask(entry.entityId)) throw new Invalid('هذه المهمة موجودة بالفعل.')
-          const t = entry.old as Task
-          store.insertTask({ ...t }, by)
+          // the restore is the latest change, so it is recorded as the restorer's
+          const { updatedAt: _at, updatedBy: _by, ...t } = entry.old as Task
+          store.insertTask(t, by)
         } else if (entry.entity === 'event') {
           if (store.getEvent(entry.entityId)) throw new Invalid('هذه الفعالية موجودة بالفعل.')
-          store.insertEvent({ ...(entry.old as EventItem) }, by)
-        }
-      } else if (entry.field === 'user') {
-        throw new Invalid('تعديلات الحسابات لا تُسترجع من السجل. عدّل الحساب من قائمة المستخدمين.')
+          const { updatedAt: _at, updatedBy: _by, ...e } = entry.old as EventItem
+          store.insertEvent(e, by)
+        } else throw new Invalid('لا يمكن استرجاع هذا النوع من التعديلات.')
       } else if ((entry.action === 'update' || entry.action === 'restore') && entry.field) {
         if (entry.entity === 'settings') store.setSetting(entry.field as keyof Settings, entry.old)
         else {
@@ -496,41 +517,56 @@ api.post(
 )
 
 /* ---------- sign-in: personal accounts, plus the built-in admin ---------- */
-// only failed attempts count: 10 wrong passwords from one address lock it out for a quarter of an hour
+// Only failed attempts count. 10 wrong passwords for one account from one address, or 30 from one
+// address in all, lock that out for a quarter of an hour: one person's typos in a shared office
+// don't lock out colleagues, and nobody can try many accounts.
 const failures = new Map<string, { n: number; reset: number }>()
-const FAIL_MAX = 10
+const FAIL_ACCOUNT = 10
+const FAIL_ADDRESS = 30
 const FAIL_WINDOW = 15 * 60_000
 api.post('/login', (req, res) => {
-  const ip = req.ip ?? 'unknown'
   const now = Date.now()
-  const f = failures.get(ip)
-  if (f && f.reset > now && f.n >= FAIL_MAX) {
-    res.setHeader('Retry-After', Math.ceil((f.reset - now) / 1000))
+  const username = typeof req.body?.username === 'string' ? req.body.username.trim().slice(0, 64) : ''
+  const password = typeof req.body?.password === 'string' ? req.body.password.slice(0, 200) : ''
+  const ip = `ip:${req.ip ?? 'unknown'}`
+  const pair = `${ip}|${username.toLowerCase()}`
+  const count = (k: string) => {
+    const f = failures.get(k)
+    return f && f.reset > now ? f : undefined
+  }
+  const forAccount = count(pair)
+  const forAddress = count(ip)
+  const block = forAccount && forAccount.n >= FAIL_ACCOUNT ? forAccount : forAddress && forAddress.n >= FAIL_ADDRESS ? forAddress : undefined
+  if (block) {
+    res.setHeader('Retry-After', Math.ceil((block.reset - now) / 1000))
     return res.status(429).json({ error: 'محاولات دخول خاطئة كثيرة. حاول بعد ربع ساعة.' })
   }
-  const username = typeof req.body?.username === 'string' ? req.body.username.trim() : ''
-  const password = typeof req.body?.password === 'string' ? req.body.password : ''
   const wrong = () => {
-    const cur = failures.get(ip)
-    if (!cur || cur.reset <= now) failures.set(ip, { n: 1, reset: now + FAIL_WINDOW })
-    else cur.n++
+    for (const k of [ip, pair]) {
+      const cur = count(k)
+      if (cur) cur.n++
+      else failures.set(k, { n: 1, reset: now + FAIL_WINDOW })
+    }
     if (failures.size > 5000) for (const [k, v] of failures) if (v.reset <= now) failures.delete(k)
     return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة.' })
   }
   if (!username || !password) return wrong()
   if (username.toLowerCase() === ADMIN_USERNAME) {
     if (!checkPassword(password)) return wrong()
-    setSessionCookie(req, res, ADMIN_USERNAME, 0)
-    return res.json({ user: { name: 'المشرف', role: 'admin' } })
+    failures.delete(pair)
+    startSession(req, res, ADMIN_USERNAME)
+    return res.json({ user: { name: ADMIN_NAME, role: 'admin' } })
   }
   const u = store.findUser(username)
   if (!u || !u.active || !verifyPassword(password, u.pass)) return wrong()
+  failures.delete(pair)
   store.updateUser(u.id, { lastLoginAt: Date.now() })
-  setSessionCookie(req, res, u.id, u.tokenVersion)
+  startSession(req, res, u.id)
   res.json({ user: { name: u.name, role: u.role } })
 })
-api.post('/logout', (_req, res) => {
-  clearSessionCookie(res)
+/** Ends the session on the server too, so a copied cookie stops working. */
+api.post('/logout', (req, res) => {
+  endSession(req, res)
   res.json({ user: null })
 })
 
@@ -544,13 +580,18 @@ const cleanPassword = (v: unknown) => {
   if (typeof v !== 'string' || v.length < 8 || v.length > 200) throw new Invalid('كلمة المرور ٨ أحرف على الأقل.')
   return v
 }
-const cleanName = (v: unknown) => {
-  const name = str(v, 60, 'الاسم')
+const RESERVED_NAMES = [ADMIN_NAME, 'مشرف', 'النظام']
+const sameName = (a: string, b: string) => a.replace(/\s+/g, ' ').toLowerCase() === b.replace(/\s+/g, ' ').toLowerCase()
+/** The name the change log shows: one per account, so it is always clear who changed what. */
+const cleanName = (v: unknown, self?: string) => {
+  const name = str(v, 60, 'الاسم').replace(/\s+/g, ' ')
   if (!name) throw new Invalid('اكتب اسمًا يظهر في سجل التعديلات.')
+  if (RESERVED_NAMES.some((r) => sameName(r, name))) throw new Invalid(`الاسم «${name}» يستخدمه النظام في سجل التعديلات. اختر اسمًا آخر.`)
+  if (store.listUsers().some((u) => u.id !== self && sameName(u.name, name))) throw new Invalid(`الاسم «${name}» لحساب آخر. اختر اسمًا مختلفًا حتى يتضح في السجل من عدّل ماذا.`)
   return name
 }
-const userLog = (req: Request, action: 'create' | 'update' | 'delete', u: { id: string; name: string; username: string; role: Role }, old: unknown, next: unknown) =>
-  store.audit({ entity: 'settings', entityId: u.id, entityTitle: u.name, action, field: 'user', old, new: next, by: editor(req) })
+const userLog = (by: string, action: 'create' | 'update' | 'delete', u: { id: string; name: string; username: string; role: Role }, old: unknown, next: unknown) =>
+  store.audit({ entity: 'settings', entityId: u.id, entityTitle: u.name, action, field: 'user', old, new: next, by })
 
 api.get('/users', requireAdmin, (_req, res) => res.json(store.listUsers().map(store.publicUser)))
 
@@ -558,12 +599,13 @@ api.post(
   '/users',
   requireAdmin,
   handle((req, res) => {
+    const by = editor(req)
     const b = (req.body ?? {}) as Record<string, unknown>
     const username = str(b.username, 32, 'اسم المستخدم')
     if (!USERNAME.test(username)) throw new Invalid('اسم المستخدم من حرفين إلى ٣٢ حرفًا لاتينيًا أو رقمًا (ويمكن . _ -).')
-    if (username.toLowerCase() === ADMIN_USERNAME || store.findUser(username)) throw new Invalid('اسم المستخدم مستخدم بالفعل.')
+    if (username.toLowerCase() === ADMIN_USERNAME || store.findUser(username)) throw new Invalid('اسم المستخدم هذا لحساب آخر. اختر اسمًا غيره.')
     const u = store.insertUser({ username, name: cleanName(b.name), role: cleanRole(b.role ?? 'team'), pass: hashPassword(cleanPassword(b.password)) })
-    userLog(req, 'create', u, null, { username: u.username, name: u.name, role: u.role })
+    userLog(by, 'create', u, null, { username: u.username, name: u.name, role: u.role })
     res.status(201).json(store.publicUser(u))
   }),
 )
@@ -572,22 +614,30 @@ api.patch(
   '/users/:id',
   requireAdmin,
   handle((req, res) => {
+    // who is making the change, taken before it: a new password of one's own ends one's sessions
+    const by = editor(req)
+    const me = currentUser(req)?.id
     const before = store.getUser(req.params.id)
     if (!before) return res.status(404).json({ error: 'لم يعد هذا الحساب موجودًا.' })
     const b = (req.body ?? {}) as Record<string, unknown>
     const patch: Parameters<typeof store.updateUser>[1] = {}
-    if ('name' in b) patch.name = cleanName(b.name)
+    if ('name' in b) patch.name = cleanName(b.name, before.id)
     if ('role' in b) patch.role = cleanRole(b.role)
     if ('active' in b) patch.active = !!b.active
     if ('password' in b) patch.pass = hashPassword(cleanPassword(b.password))
     // an admin can't lock themselves out
-    if (before.id === currentUser(req)?.id && ((patch.role && patch.role !== 'admin') || patch.active === false)) throw new Invalid('لا يمكنك إيقاف حسابك أو إزالة صلاحية المشرف عنه.')
+    if (before.id === me && ((patch.role && patch.role !== 'admin') || patch.active === false)) throw new Invalid('لا يمكنك إيقاف حسابك أو إزالة صلاحية المشرف عنه.')
     // a new password or a stopped account ends its sessions
     if (patch.pass || patch.active === false) patch.bumpVersion = true
-    store.updateUser(before.id, patch)
+    store.db.transaction(() => {
+      store.updateUser(before.id, patch)
+      if (patch.bumpVersion) store.deleteUserSessions(before.id)
+    })()
+    // a new password for one's own account keeps this browser signed in (the others are signed out)
+    if (patch.bumpVersion && before.id === me) startSession(req, res, before.id)
     const after = store.getUser(before.id)!
-    const shown = (u: typeof before) => ({ name: u.name, role: u.role, active: u.active })
-    userLog(req, 'update', after, shown(before), { ...shown(after), ...(patch.pass ? { password: 'تغيّرت' } : {}) })
+    const summary = (u: typeof before) => ({ name: u.name, role: u.role, active: u.active })
+    userLog(by, 'update', after, summary(before), { ...summary(after), ...(patch.pass ? { password: 'تغيّرت' } : {}) })
     res.json(store.publicUser(after))
   }),
 )
@@ -596,11 +646,15 @@ api.delete(
   '/users/:id',
   requireAdmin,
   handle((req, res) => {
+    const by = editor(req)
     const before = store.getUser(req.params.id)
     if (!before) return res.status(404).json({ error: 'لم يعد هذا الحساب موجودًا.' })
     if (before.id === currentUser(req)?.id) throw new Invalid('لا يمكنك حذف حسابك.')
     store.deleteUser(before.id)
-    userLog(req, 'delete', before, { username: before.username, name: before.name, role: before.role }, null)
+    userLog(by, 'delete', before, { username: before.username, name: before.name, role: before.role }, null)
     res.status(204).end()
   }),
 )
+
+/* ---------- anything else under /api: a JSON answer, never the page ---------- */
+api.use((_req, res) => res.status(404).json({ error: 'هذا الطلب غير معروف.' }))

@@ -18,7 +18,12 @@ async function signIn(page: Page, who: Who = ADMIN) {
 async function apiSignIn(request: APIRequestContext, who: Who = ADMIN) {
   expect((await request.post('/api/login', { data: who })).status()).toBe(200)
 }
-const iso = (days: number) => new Date(Date.now() + days * 864e5).toISOString().slice(0, 10)
+/** A day relative to today, in local time (as the board counts days). */
+const iso = (days: number) => {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 const tasksOf = async (request: APIRequestContext) => (await (await request.get('/api/state')).json()).tasks as Record<string, unknown>[]
 
 test('renders right-to-left with the seeded board and no errors', async ({ page }) => {
@@ -517,4 +522,215 @@ test('in the calendar, dragging an item to another day changes its date', async 
   await expect.poll(end).toBe('')
   await tl.getByLabel('بنود بلا تاريخ').getByRole('button', { name: title }).dragTo(cal.locator(`[data-day="${day(now)}"]`))
   await expect.poll(end).toBe(day(now))
+})
+
+/* ---------- the audit fixes (5 Nov 2026) ---------- */
+const BASE = 'http://localhost:3099'
+
+test('deleting from the drawer closes it, and nothing becomes a new item', async ({ page, request }) => {
+  await apiSignIn(request)
+  const title = 'بند يُحذف من النافذة'
+  await request.post('/api/tasks', { data: { title } })
+  await page.goto('/')
+  await signIn(page)
+  await page.locator('table').getByRole('button', { name: title, exact: true }).click()
+  await page.getByRole('button', { name: 'حذف', exact: true }).click()
+  await page.getByRole('button', { name: 'نعم، احذف' }).click()
+  await expect(page.getByRole('heading', { name: 'مهمة أو فعالية جديدة' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'نعم، احذف' })).toHaveCount(0)
+  await expect(page.locator('#t-title')).toHaveCount(0)
+  expect((await tasksOf(request)).some((t) => t.title === title)).toBe(false)
+})
+
+test('an item deleted on another screen while open is never saved back as a new one', async ({ page, request }) => {
+  await apiSignIn(request)
+  const title = 'بند يُحذف من شاشة أخرى'
+  const made = await (await request.post('/api/tasks', { data: { title } })).json()
+  await page.goto('/')
+  await signIn(page)
+  await page.locator('table').getByRole('button', { name: title, exact: true }).click()
+  await page.locator('#t-title').fill(`${title} معدّل`)
+  expect((await request.delete(`/api/tasks/${made.id}`)).status()).toBe(204)
+  await expect(page.getByText('حُذف هذا البند، فلا يمكن حفظ التغييرات عليه')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'حفظ', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'إغلاق' }).last().click()
+  expect((await tasksOf(request)).some((t) => String(t.title).startsWith(title))).toBe(false)
+})
+
+test('a save sends only what was changed, so an edit made meanwhile on another screen stays', async ({ page, request }) => {
+  await apiSignIn(request)
+  const title = 'بند يعدّله شخصان'
+  const made = await (await request.post('/api/tasks', { data: { title, notes: 'الملاحظة الأولى' } })).json()
+  await page.goto('/')
+  await signIn(page)
+  await page.locator('table').getByRole('button', { name: title, exact: true }).click()
+  // someone else changes the notes while this drawer is open
+  await request.patch(`/api/tasks/${made.id}`, { data: { notes: 'ملاحظة من شاشة أخرى' } })
+  await page.getByLabel('المسؤول', { exact: true }).fill('سلمى')
+  await page.getByRole('button', { name: 'حفظ', exact: true }).click()
+  await expect.poll(async () => (await tasksOf(request)).find((t) => t.id === made.id)!.owner).toBe('سلمى')
+  expect((await tasksOf(request)).find((t) => t.id === made.id)!.notes).toBe('ملاحظة من شاشة أخرى')
+})
+
+test('signing out ends the session on the server, so a copied cookie stops working', async ({ playwright }) => {
+  const a = await playwright.request.newContext({ baseURL: BASE })
+  await apiSignIn(a)
+  const b = await playwright.request.newContext({ baseURL: BASE, storageState: { cookies: (await a.storageState()).cookies, origins: [] } })
+  expect((await (await b.get('/api/state')).json()).user).not.toBeNull()
+  await a.post('/api/logout')
+  expect((await (await b.get('/api/state')).json()).user).toBeNull()
+  expect((await b.patch('/api/tasks/x', { data: { owner: 'x' } })).status()).toBe(401)
+  // a garbled cookie is just a visitor, never an error
+  const c = await playwright.request.newContext({ baseURL: BASE, extraHTTPHeaders: { cookie: 'vp_session=%E0%A4%A' } })
+  const st = await c.get('/api/state')
+  expect(st.status()).toBe(200)
+  expect((await st.json()).user).toBeNull()
+  await Promise.all([a.dispose(), b.dispose(), c.dispose()])
+})
+
+test('a new password for one’s own account keeps this browser signed in and signs the others out', async ({ request, playwright }) => {
+  await apiSignIn(request)
+  const boss = await (await request.post('/api/users', { data: { username: 'boss', name: 'مشرف ثان', role: 'admin', password: 'boss-pass-1' } })).json()
+  const here = await playwright.request.newContext({ baseURL: BASE })
+  const there = await playwright.request.newContext({ baseURL: BASE })
+  await apiSignIn(here, { username: 'boss', password: 'boss-pass-1' })
+  await apiSignIn(there, { username: 'boss', password: 'boss-pass-1' })
+  expect((await here.patch(`/api/users/${boss.id}`, { data: { password: 'boss-pass-2' } })).status()).toBe(200)
+  expect((await here.get('/api/users')).status()).toBe(200)
+  expect((await there.get('/api/users')).status()).toBe(401)
+  // the change log names who made the change
+  const log = await (await request.get('/api/audit?limit=5')).json()
+  expect(log.some((e: { field: string; by: string; entityTitle: string }) => e.field === 'user' && e.entityTitle === 'مشرف ثان' && e.by === 'مشرف ثان')).toBe(true)
+  await Promise.all([here.dispose(), there.dispose()])
+})
+
+test('each account has its own name, and the names the system writes are reserved', async ({ request }) => {
+  await apiSignIn(request)
+  const add = (username: string, name: string) => request.post('/api/users', { data: { username, name, role: 'team', password: 'some-pass-1' } })
+  const reserved = await add('fake.admin', 'المشرف')
+  expect(reserved.status()).toBe(400)
+  expect((await reserved.json()).error).toContain('يستخدمه النظام')
+  expect((await add('twin.one', 'ريم')).status()).toBe(201)
+  expect((await add('twin.two', ' ريم ')).status()).toBe(400)
+  const other = await (await add('twin.three', 'ريما')).json()
+  expect((await request.patch(`/api/users/${other.id}`, { data: { name: 'ريم' } })).status()).toBe(400)
+  expect((await request.patch(`/api/users/${other.id}`, { data: { name: 'ريما' } })).status()).toBe(200)
+})
+
+test('impossible dates are refused, and unknown API paths answer in JSON', async ({ request }) => {
+  await apiSignIn(request)
+  const id = (await tasksOf(request))[0].id
+  const bad = await request.patch(`/api/tasks/${id}`, { data: { end: '2026-02-31' } })
+  expect(bad.status()).toBe(400)
+  expect((await bad.json()).error).toBe('التاريخ: تاريخ غير صالح.')
+  expect((await request.patch(`/api/tasks/${id}`, { data: { start: '2028-02-29' } })).status()).toBe(200)
+  const nope = await request.get('/api/nothing-here')
+  expect(nope.status()).toBe(404)
+  expect(nope.headers()['content-type']).toContain('application/json')
+  const broken = await request.post('/api/login', { headers: { 'content-type': 'application/json' }, data: '{not json' })
+  expect(broken.status()).toBe(400)
+  expect((await broken.json()).error).toBeTruthy()
+})
+
+test('the page is served with security headers', async ({ request }) => {
+  const h = (await request.get('/')).headers()
+  expect(h['content-security-policy']).toContain("default-src 'self'")
+  expect(h['content-security-policy']).toContain("frame-ancestors 'self'")
+  expect(h['x-content-type-options']).toBe('nosniff')
+  expect(h['referrer-policy']).toBe('same-origin')
+})
+
+test('the spreadsheet keeps formula-like text as plain text', async ({ request }) => {
+  await apiSignIn(request)
+  const made = await (await request.post('/api/tasks', { data: { title: 'بند بصيغة', notes: '=HYPERLINK("http://x")' } })).json()
+  const csv = await (await request.get('/api/backup/tasks.csv')).text()
+  expect(csv).toContain(`"'=HYPERLINK(""http://x"")"`)
+  expect(csv).not.toMatch(/(^|,)=HYPERLINK/m)
+  await request.delete(`/api/tasks/${made.id}`)
+})
+
+test('a restore keeps who changed each item last, and refuses a file with a repeated id', async ({ request }) => {
+  await apiSignIn(request)
+  const backup = await (await request.get('/api/backup')).json()
+  const twice = { ...backup, tasks: [...backup.tasks, backup.tasks[0]] }
+  const refused = await request.post('/api/backup/restore', { data: twice })
+  expect(refused.status()).toBe(400)
+  expect((await refused.json()).error).toContain('بالمعرّف نفسه')
+  expect((await request.post('/api/backup/restore', { data: backup })).status()).toBe(200)
+  const after = await tasksOf(request)
+  for (const t of backup.tasks) {
+    const now = after.find((x) => x.id === t.id)!
+    expect(now.updatedBy).toBe(t.updatedBy)
+    expect(now.updatedAt).toBe(t.updatedAt)
+  }
+})
+
+test('account changes are never replayed from the change log', async ({ request }) => {
+  await apiSignIn(request)
+  const u = await (await request.post('/api/users', { data: { username: 'gone.soon', name: 'سيُحذف', role: 'team', password: 'gone-pass-1' } })).json()
+  await request.delete(`/api/users/${u.id}`)
+  const entry = (await (await request.get('/api/audit?limit=10')).json()).find((e: { field: string; action: string; entityId: string }) => e.field === 'user' && e.action === 'delete' && e.entityId === u.id)
+  expect(entry).toBeTruthy()
+  const r = await request.post(`/api/audit/${entry.id}/restore`)
+  expect(r.status()).toBe(400)
+  expect((await (await request.get('/api/users')).json()).some((x: { username: string }) => x.username === 'gone.soon')).toBe(false)
+})
+
+test('wrong passwords lock out that account from that address only', async ({ request }) => {
+  for (let i = 0; i < 10; i++) expect((await request.post('/api/login', { data: { username: 'lock.me', password: 'wrong' } })).status()).toBe(401)
+  expect((await request.post('/api/login', { data: { username: 'lock.me', password: 'wrong' } })).status()).toBe(429)
+  // colleagues on the same address still sign in
+  expect((await request.post('/api/login', { data: ADMIN })).status()).toBe(200)
+})
+
+test('a small nudge of a bubble keeps its values; a real drag changes them', async ({ page, request }) => {
+  await apiSignIn(request)
+  const title = 'فقاعة للسحب'
+  const made = await (await request.post('/api/tasks', { data: { title, priority: 3, urgency: 1, effort: 2 } })).json()
+  await page.goto('/')
+  await signIn(page)
+  const bubble = page.locator(`#matrix svg g[role="button"][aria-label^="${title}:"]`)
+  const drag = async (dx: number, dy: number) => {
+    await bubble.scrollIntoViewIfNeeded()
+    const b = (await bubble.boundingBox())!
+    const [x, y] = [b.x + b.width / 2, b.y + b.height / 2]
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    for (let i = 1; i <= 10; i++) await page.mouse.move(x + (dx * i) / 10, y + (dy * i) / 10)
+    await page.mouse.up()
+  }
+  await drag(6, 4)
+  await page.waitForTimeout(500)
+  let t = (await tasksOf(request)).find((x) => x.id === made.id)!
+  expect([t.priority, t.urgency]).toEqual([3, 1])
+  // urgency grows to the left: a quarter of the plot is about two and a half steps
+  const w = (await page.getByRole('group', { name: 'مصفوفة المهام حسب درجة الأهمية ومستوى الاستعجال' }).boundingBox())!.width
+  await drag(-w * 0.2, 0)
+  await expect.poll(async () => (await tasksOf(request)).find((x) => x.id === made.id)!.urgency as number).toBeGreaterThanOrEqual(3)
+  t = (await tasksOf(request)).find((x) => x.id === made.id)!
+  expect(t.priority).toBe(3)
+  await expect(page.getByText(/^نُقل البند إلى أهمية/)).toBeVisible()
+  await request.delete(`/api/tasks/${made.id}`)
+})
+
+test('an overdue item keeps the status the team chose in its menu, with the overdue badge beside it', async ({ page, request }) => {
+  await apiSignIn(request)
+  const title = 'بند فات تاريخه'
+  const made = await (await request.post('/api/tasks', { data: { title, start: iso(-20), end: iso(-3), status: 'on-track', progress: 30 } })).json()
+  await page.goto('/')
+  await signIn(page)
+  await expect(page.getByLabel(`الحالة — ${title}`, { exact: true })).toHaveValue('on-track')
+  await expect(page.locator('table tr').filter({ hasText: title }).getByText('متأخرة ٣ أيام')).toBeVisible()
+  await page.locator('table').getByRole('button', { name: title, exact: true }).click()
+  await expect(page.locator('#t-status')).toHaveValue('on-track')
+  await expect(page.getByText('فات تاريخ هذا البند، فيظهر «متأخرة»')).toBeVisible()
+  await request.delete(`/api/tasks/${made.id}`)
+})
+
+test('on a phone, the timeline opens as the calendar the first time', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'ar-SA' })
+  const page = await ctx.newPage()
+  await page.goto('/')
+  await expect(page.locator('#timeline').getByRole('tab', { name: 'تقويم' })).toHaveAttribute('aria-selected', 'true')
+  await ctx.close()
 })

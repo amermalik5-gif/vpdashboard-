@@ -1,7 +1,7 @@
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import type { NextFunction, Request, Response } from 'express'
 import { editsAll, type Role } from '../src/lib/types.ts'
-import { getUser } from './db.ts'
+import { createSession, deleteSession, getSession, getUser, pruneSessions } from './db.ts'
 
 const COOKIE = 'vp_session'
 const TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -9,11 +9,11 @@ const TTL_MS = 30 * 24 * 60 * 60 * 1000
 /** The built-in admin (username «admin»): always there, so nobody can be locked out. */
 const PASSWORD = process.env.ADMIN_PASSWORD ?? ''
 export const ADMIN_USERNAME = 'admin'
-// without a configured secret, sessions only survive until the next restart
+export const ADMIN_NAME = 'المشرف'
+// signs the sessions from before 5 Nov 2026 (see `upgradeSession`); new sessions live on the server
 const SECRET = process.env.SESSION_SECRET || randomBytes(32).toString('hex')
 
 if (!PASSWORD) console.warn('[auth] ADMIN_PASSWORD is not set: the built-in admin cannot sign in.')
-if (!process.env.SESSION_SECRET) console.warn('[auth] SESSION_SECRET is not set: sessions end on every restart.')
 
 const sign = (v: string) => createHmac('sha256', SECRET).update(v).digest('base64url')
 
@@ -25,7 +25,8 @@ const safeEqual = (a: string | Buffer, b: string | Buffer) => {
 
 export const checkPassword = (p: unknown) => !!PASSWORD && typeof p === 'string' && safeEqual(sign(p), sign(PASSWORD))
 // changing ADMIN_PASSWORD ends the built-in admin's sessions
-const ADMIN_VERSION = sign(`admin:${PASSWORD}`).slice(0, 12)
+// (scrypt: a copy of the database must not make the password cheap to guess)
+const ADMIN_VERSION = scryptSync(`admin:${PASSWORD}`, 'vp-dashboard-admin', 12).toString('base64url')
 
 /* ---------- passwords: scrypt with a random salt; only the hash is stored ---------- */
 export function hashPassword(p: string): string {
@@ -50,34 +51,88 @@ function readCookie(req: Request, name: string): string | undefined {
   if (!raw) return
   for (const part of raw.split(';')) {
     const [k, ...v] = part.trim().split('=')
-    if (k === name) return decodeURIComponent(v.join('='))
+    if (k !== name) continue
+    try {
+      return decodeURIComponent(v.join('='))
+    } catch {
+      return // a garbled cookie is no session
+    }
   }
 }
 
-/**
- * The signed-in person, checked on every request: a disabled or deleted account, or a reset
- * password (a new token version), ends the session at once.
- */
-export function currentUser(req: Request): SessionUser | null {
-  const c = readCookie(req, COOKIE)
-  if (!c) return null
-  const [exp, uid, ver, mac] = c.split('.')
-  if (!exp || !uid || !ver || !mac || !safeEqual(mac, sign(`${exp}.${uid}.${ver}`)) || Number(exp) <= Date.now()) return null
-  if (uid === ADMIN_USERNAME) return PASSWORD && ver === ADMIN_VERSION ? { id: ADMIN_USERNAME, name: 'المشرف', role: 'admin' } : null
+/** The account a session belongs to, if it is still valid: active, and not reset since. */
+function accountOf(uid: string, ver: string): SessionUser | null {
+  if (uid === ADMIN_USERNAME) return PASSWORD && ver === ADMIN_VERSION ? { id: ADMIN_USERNAME, name: ADMIN_NAME, role: 'admin' } : null
   const u = getUser(uid)
   if (!u || !u.active || String(u.tokenVersion) !== ver) return null
   return { id: u.id, name: u.name, role: u.role }
 }
+const versionOf = (uid: string) => (uid === ADMIN_USERNAME ? ADMIN_VERSION : String(getUser(uid)?.tokenVersion ?? ''))
+
+// the session id is kept on the server only as a hash, so a copy of the database can't sign anyone in
+const hashId = (sid: string) => createHash('sha256').update(sid).digest('base64url')
+
+/** Sessions signed before 5 Nov 2026 (`exp.uid.ver.mac`, no server record). */
+function legacyAccount(c: string): SessionUser | null {
+  const [exp, uid, ver, mac] = c.split('.')
+  if (!exp || !uid || !ver || !mac || !safeEqual(mac, sign(`${exp}.${uid}.${ver}`)) || Number(exp) <= Date.now()) return null
+  if (uid === ADMIN_USERNAME) {
+    // the old admin version was an HMAC of the password
+    return PASSWORD && ver === sign(`admin:${PASSWORD}`).slice(0, 12) ? accountOf(ADMIN_USERNAME, ADMIN_VERSION) : null
+  }
+  return accountOf(uid, ver)
+}
+
+function readSession(req: Request): SessionUser | null {
+  const c = readCookie(req, COOKIE)
+  if (!c) return null
+  if (c.includes('.')) return legacyAccount(c)
+  const s = getSession(hashId(c))
+  if (!s || s.expires <= Date.now()) return null
+  return accountOf(s.userId, s.ver)
+}
+
+const seen = new WeakMap<Request, SessionUser | null>()
+
+/**
+ * The signed-in person, checked once per request against the server's sessions: signing out, a
+ * disabled or deleted account, or a reset password ends a session at once.
+ */
+export function currentUser(req: Request): SessionUser | null {
+  if (!seen.has(req)) seen.set(req, readSession(req))
+  return seen.get(req)!
+}
 export const isAdmin = (req: Request) => currentUser(req)?.role === 'admin'
 
-export function setSessionCookie(req: Request, res: Response, uid: string, version: number) {
-  const exp = String(Date.now() + TTL_MS)
-  const body = `${exp}.${uid}.${uid === ADMIN_USERNAME ? ADMIN_VERSION : version}`
-  res.cookie(COOKIE, `${body}.${sign(body)}`, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: TTL_MS, path: '/' })
+const cookieOptions = (req: Request) => ({ httpOnly: true, sameSite: 'lax' as const, secure: req.secure, path: '/' })
+
+/** Signs the account in on this browser: a new random session, recorded on the server. */
+export function startSession(req: Request, res: Response, uid: string) {
+  pruneSessions()
+  const sid = randomBytes(32).toString('base64url')
+  const ver = versionOf(uid)
+  createSession(hashId(sid), uid, ver, Date.now() + TTL_MS)
+  res.cookie(COOKIE, sid, { ...cookieOptions(req), maxAge: TTL_MS })
+  seen.set(req, accountOf(uid, ver))
 }
-export function clearSessionCookie(res: Response) {
-  res.clearCookie(COOKIE, { path: '/' })
+
+/** Signs this browser out, and ends its session on the server. */
+export function endSession(req: Request, res: Response) {
+  const c = readCookie(req, COOKIE)
+  if (c && !c.includes('.')) deleteSession(hashId(c))
+  res.clearCookie(COOKIE, cookieOptions(req))
   res.clearCookie('vp_admin', { path: '/' }) // the old admin-only cookie
+  seen.set(req, null)
+}
+
+/** A still-valid session from before 5 Nov 2026 moves to the server's sessions, so nobody is signed out by the change. */
+export function upgradeSession(req: Request, res: Response, next: NextFunction) {
+  const c = readCookie(req, COOKIE)
+  if (c?.includes('.')) {
+    const u = currentUser(req)
+    if (u) startSession(req, res, u.id)
+  }
+  next()
 }
 
 /** Same-origin requests only, so another site can't act with someone's session. */
@@ -119,11 +174,14 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next()
 }
 
-/** Small in-memory fixed-window limiter (one instance, so no shared store needed). */
+/**
+ * Small in-memory fixed-window limiter (one instance, so no shared store needed). Counted per
+ * account when signed in, so colleagues behind one office address don't share a budget.
+ */
 export function rateLimit(max: number, windowMs: number, message: string) {
   const hits = new Map<string, { n: number; reset: number }>()
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = req.ip ?? 'unknown'
+    const key = currentUser(req)?.id ?? `ip:${req.ip ?? 'unknown'}`
     const now = Date.now()
     const h = hits.get(key)
     if (!h || h.reset < now) hits.set(key, { n: 1, reset: now + windowMs })

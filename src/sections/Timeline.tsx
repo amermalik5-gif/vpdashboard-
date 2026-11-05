@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent as RDragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent as RDragEvent } from 'react'
 import { ChevronLeft, ChevronRight, FileDown } from 'lucide-react'
 import { ReadyStar } from '@/components/ReadyStar'
 import { Card } from '@/components/ui/Card'
@@ -6,7 +6,7 @@ import { Tabs } from '@/components/ui/Tabs'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
-import { fmtDate, fmtDay, fmtMonth, toArabicDigits } from '@/lib/format'
+import { countItems, fmtDate, fmtDay, fmtMonth, toArabicDigits } from '@/lib/format'
 import { addDays, isoDate, isOverdue, isReady, itemNumbers, packRows, parseDate, span, STATUS, statusOf, today, weekStart, type Status } from '@/lib/schedule'
 import { ITEM_KINDS, type ItemKind, type Task } from '@/lib/types'
 
@@ -17,12 +17,15 @@ const VIEWS: { id: View; label: string }[] = [
 ]
 // each viewer's last choice; storage can be unavailable (private mode), so never rely on it
 const VIEW_KEY = 'vp:timeline-view'
+const phone = () => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches
 const savedView = (): View => {
+  let v: string | null = null
   try {
-    return localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'timeline'
+    v = localStorage.getItem(VIEW_KEY)
   } catch {
-    return 'timeline'
+    /* private mode: the default below */
   }
+  return v === 'calendar' || v === 'timeline' ? v : phone() ? 'calendar' : 'timeline'
 }
 
 /** The calendar shows one month, or a whole year (January–December). */
@@ -47,8 +50,16 @@ const RANGES: { id: Range; label: string }[] = [
   { id: '12', label: '١٢ شهرًا' },
 ]
 const ROW_H = 34
-/** Room a marker's name needs before the next item on the row, as % of the track (track ≥ 880px). */
-const LABEL_MIN = 20
+
+/** A label's width in the page font (12px), so the rows can be packed without overlaps. */
+let measureCtx: CanvasRenderingContext2D | null = null
+const textWidth = (text: string, weight: number) => {
+  measureCtx ??= document.createElement('canvas').getContext('2d')
+  if (!measureCtx) return text.length * 7
+  measureCtx.font = `${weight} 12px "Neo Sans W23", system-ui, sans-serif`
+  return measureCtx.measureText(text).width
+}
+
 
 type Item = { s: Date; t: Task }
 
@@ -58,19 +69,10 @@ const LANES: { id: ItemKind; name: string }[] = [
   { id: '', name: 'غير مصنّف' },
 ]
 
-/** «بند واحد · بندان · ٣ بنود · ١١ بندًا» */
-const items = (n: number) => (n === 1 ? 'بند واحد' : n === 2 ? 'بندان' : n <= 10 ? `${toArabicDigits(n)} بنود` : `${toArabicDigits(n)} بندًا`)
 
 const Dot = ({ color, size = 14 }: { color: string; size?: number }) => (
   <span aria-hidden className="shrink-0 rounded-full" style={{ width: size, height: size, background: color }} />
 )
-
-/** The month the timeline opens on: this one, or the next when this one is nearly over. */
-function firstMonth(now: Date) {
-  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-  const daysLeft = Math.round((nextMonth.getTime() - now.getTime()) / 864e5)
-  return daysLeft <= 7 ? nextMonth : new Date(now.getFullYear(), now.getMonth(), 1)
-}
 
 /** The dated items, seen as a timeline or as a month calendar, plus the ones without a date yet. */
 export function Timeline() {
@@ -341,7 +343,7 @@ export function Timeline() {
         >
           <div className="flex flex-col justify-center border-e border-line-subtle px-4 py-3">
             <span className="text-sm font-medium">بلا تاريخ بعد</span>
-            <span className="text-2xs text-fg-tertiary">{items(undated.length)}</span>
+            <span className="text-2xs text-fg-tertiary">{countItems(undated.length)}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 p-3" aria-label="بنود بلا تاريخ">
             {canClear && <span className="text-sm font-medium text-brand">أفلته هنا لإزالة التاريخ</span>}
@@ -449,7 +451,8 @@ export function Timeline() {
 
 /** Quarter grid in the booklet's roadmap style: time runs from the start side (right) to the left. */
 function TimelineChart({ tasks, range, now, openTask }: { tasks: Task[]; range: Range; now: Date; openTask: (id: string) => void }) {
-  const t0 = firstMonth(now)
+  // always from the 1st of this month, so this week's items and the «اليوم» line are on it
+  const t0 = new Date(now.getFullYear(), now.getMonth(), 1)
   const t1 = new Date(t0.getFullYear(), t0.getMonth() + Number(range), 1)
   const pos = (d: Date) => Math.min(100, Math.max(0, ((d.getTime() - t0.getTime()) / (t1.getTime() - t0.getTime())) * 100))
 
@@ -460,9 +463,25 @@ function TimelineChart({ tasks, range, now, openTask }: { tasks: Task[]; range: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range, t0.getTime()])
 
+  // each label's real width (dot, title, ★, date, «متأخرة»), as % of the track the rows are packed on
+  const track = useRef<HTMLDivElement>(null)
+  const [trackW, setTrackW] = useState(880)
+  const [fontsReady, setFontsReady] = useState(false)
+  useEffect(() => {
+    const el = track.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setTrackW(Math.max(200, e.contentRect.width)))
+    ro.observe(el)
+    void document.fonts?.ready.then(() => setFontsReady(true))
+    return () => ro.disconnect()
+  }, [])
+  const width = (o: Item) => {
+    const px = 20 + textWidth(o.t.title, 500) + 6 + textWidth(fmtDay(span(o.t)[1]), 400) + (isReady(o.t) ? 19 : 0) + (isOverdue(o.t, now) ? 58 : 0) + 14
+    return (px / trackW) * 100
+  }
   // labels run toward the end of time; near the far edge they flip back so they're never clipped
-  const flip = (d: Date) => pos(d) > 100 - LABEL_MIN
-  const extent = (o: Item): [number, number] => (flip(o.s) ? [pos(o.s) - LABEL_MIN, pos(o.s)] : [pos(o.s), pos(o.s) + LABEL_MIN])
+  const flip = (o: Item) => pos(o.s) + width(o) > 100
+  const extent = (o: Item): [number, number] => (flip(o) ? [pos(o.s) - width(o), pos(o.s)] : [pos(o.s), pos(o.s) + width(o)])
 
   const lanes = useMemo(() => {
     // one point per item, on the day the VP set.
@@ -479,7 +498,7 @@ function TimelineChart({ tasks, range, now, openTask }: { tasks: Task[]; range: 
       .filter((l) => l.items.length)
       .map((l) => ({ ...l, rows: packRows(l.items, extent) }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, range, t0.getTime()])
+  }, [tasks, range, t0.getTime(), trackW, fontsReady])
 
   const nowPos = pos(now)
   const showToday = now >= t0 && now < t1
@@ -490,7 +509,7 @@ function TimelineChart({ tasks, range, now, openTask }: { tasks: Task[]; range: 
         {/* month header */}
         <div className="grid grid-cols-[140px_1fr] border-b border-line-subtle bg-neutral-25">
           <div className="sticky start-0 z-20 bg-neutral-25" />
-          <div className="relative h-12">
+          <div ref={track} className="relative mx-3 h-12">
             {months.map((m) => {
               const s = pos(m)
               const e = pos(new Date(m.getFullYear(), m.getMonth() + 1, 1))
@@ -513,7 +532,7 @@ function TimelineChart({ tasks, range, now, openTask }: { tasks: Task[]; range: 
         {lanes.map((lane) => (
           <div key={lane.id || '__none'} className="grid grid-cols-[140px_1fr] border-b border-line-subtle last:border-b-0">
             <div className="sticky start-0 z-20 flex items-center border-e border-line-subtle bg-surface px-4 text-sm font-medium">{lane.name}</div>
-            <div className="relative py-2" style={{ minHeight: Math.max(1, lane.rows.length) * ROW_H + 16 }}>
+            <div className="relative mx-3 py-2" style={{ minHeight: Math.max(1, lane.rows.length) * ROW_H + 16 }}>
               {/* month and quarter lines */}
               {months.map((m) => (
                 <span
@@ -538,10 +557,10 @@ function TimelineChart({ tasks, range, now, openTask }: { tasks: Task[]; range: 
                       onClick={() => openTask(t.id)}
                       className={cn(
                         'absolute flex items-center gap-1.5 whitespace-nowrap rounded-full py-0.5 text-xs font-medium text-fg-primary hover:bg-brand-soft',
-                        flip(o.s) ? 'flex-row-reverse ps-2' : 'pe-2',
+                        flip(o) ? 'flex-row-reverse ps-2' : 'pe-2',
                       )}
                       style={{
-                        ...(flip(o.s) ? { insetInlineEnd: `calc(${100 - pos(o.s)}% - 7px)` } : { insetInlineStart: `calc(${pos(o.s)}% - 7px)` }),
+                        ...(flip(o) ? { insetInlineEnd: `calc(${100 - pos(o.s)}% - 7px)` } : { insetInlineStart: `calc(${pos(o.s)}% - 7px)` }),
                         top: top + 4,
                       }}
                       title={`${t.title} (${kindName})\nالتاريخ: ${fmtDate(span(t)[1])}\n${st.name}`}
@@ -568,7 +587,7 @@ function TimelineChart({ tasks, range, now, openTask }: { tasks: Task[]; range: 
         {showToday && (
           <div className="grid grid-cols-[140px_1fr]">
             <div />
-            <div className="relative h-8">
+            <div className="relative mx-3 h-8">
               <span
                 className="absolute top-1.5 inline-flex translate-x-1/2 items-center gap-1.5 rounded-full border border-gold-500/40 bg-surface px-2 py-0.5 text-2xs font-medium text-fg-primary"
                 style={{ insetInlineStart: `${nowPos}%` }}
@@ -711,6 +730,8 @@ function MonthCalendar({
                 aria-label={dayLong.format(d)}
                 data-day={iso}
                 {...dropProps(iso)}
+                // the exported page: the weeks share the height of an A4 landscape page
+                style={forPrint ? { minHeight: Math.floor(770 / (days.length / 7)) } : undefined}
                 className={cn(
                   'flex min-h-[116px] min-w-0 flex-col gap-1 border-b border-e border-line-subtle p-1.5 transition-colors duration-fast [&:nth-child(7n)]:border-e-0',
                   !inMonth(d) ? 'bg-neutral-25' : weekend && 'bg-neutral-25/60',

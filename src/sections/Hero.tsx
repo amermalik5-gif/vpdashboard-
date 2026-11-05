@@ -2,7 +2,7 @@ import { Plus } from 'lucide-react'
 import pattern from '@/assets/brand/bg-pattern.webp'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
-import { fmtDate, toArabicDigits } from '@/lib/format'
+import { countItems, fmtDate, toArabicDigits } from '@/lib/format'
 import { ReadyStar } from '@/components/ReadyStar'
 import { addDays, hasDate, isOpen, isReady, span, statusOf, today } from '@/lib/schedule'
 
@@ -27,7 +27,7 @@ export function Hero() {
         const [, e] = span(t)
         return e >= now && e <= soon
       }).length,
-      name: 'مواعيد خلال ١٤ يومًا',
+      name: 'خلال ١٤ يومًا',
     },
     // a click shows just these in the table
     { n: open.filter(isReady).length, name: 'جاهزة للإطلاق', ready: true },
@@ -47,7 +47,7 @@ export function Hero() {
             {drafts > 0 && (
               <a href="#register" className="inline-flex items-center gap-1.5 rounded-full border border-gold-500/50 px-2.5 py-0.5 text-xs font-medium text-gold-500 hover:bg-white/5">
                 <span className="h-1.5 w-1.5 rounded-full bg-gold-500" />
-                {toArabicDigits(drafts)} بانتظار موافقة نائب الرئيس
+                {countItems(drafts)} بانتظار موافقة نائب الرئيس
               </a>
             )}
           </div>
@@ -63,7 +63,7 @@ export function Hero() {
                   {s.ready && <ReadyStar size={11} />}
                   {s.name}
                 </dt>
-                <dd className={cn('text-xl font-medium tabular', s.hot && s.n > 0 && 'text-warning-400', s.alarm && s.n > 0 && 'text-danger-500')}>{state ? toArabicDigits(s.n) : '–'}</dd>
+                <dd className={cn('text-xl font-medium tabular', s.hot && s.n > 0 && 'text-warning-400', s.alarm && s.n > 0 && 'text-danger-500')}>{state ? toArabicDigits(s.n) : '—'}</dd>
               </div>
             ))}
           </dl>

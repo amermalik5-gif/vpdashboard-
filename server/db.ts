@@ -34,6 +34,10 @@ db.exec(`
     pass TEXT NOT NULL, token_version INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL, last_login_at INTEGER
   );
+  CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, ver TEXT NOT NULL, expires INTEGER NOT NULL, created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 `)
 
 // databases from before items had a type or a status: add the columns in place
@@ -115,6 +119,8 @@ export function insertTask(
     position?: number
     id?: string
     createdAt?: number
+    updatedAt?: number
+    updatedBy?: string
   },
   by: string,
 ): Task {
@@ -125,7 +131,7 @@ export function insertTask(
   db.prepare(
     `INSERT INTO tasks (id,title,kind,category,label,priority,urgency,expectation,effort,progress,status,ready,start,"end",owner,notes,draft,position,created_at,updated_at,updated_by)
      VALUES (@id,@title,@kind,@category,@label,@priority,@urgency,@expectation,@effort,@progress,@status,@ready,@start,@end,@owner,@notes,@draft,@position,@created_at,@updated_at,@updated_by)`,
-  ).run({ ...t, kind: t.kind ?? '', status: t.status ?? '', ready: Number(!!t.ready), position, id, draft: Number(t.draft), created_at: t.createdAt ?? now, updated_at: now, updated_by: by })
+  ).run({ ...t, kind: t.kind ?? '', status: t.status ?? '', ready: Number(!!t.ready), position, id, draft: Number(t.draft), created_at: t.createdAt ?? now, updated_at: t.updatedAt ?? now, updated_by: t.updatedBy ?? by })
   return getTask(id)!
 }
 
@@ -382,7 +388,18 @@ export function updateUser(id: string, patch: { name?: string; role?: Role; acti
   if (patch.bumpVersion) sets.push('token_version = token_version + 1')
   if (sets.length) db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...params, id)
 }
-export const deleteUser = (id: string) => db.prepare('DELETE FROM users WHERE id = ?').run(id)
+export const deleteUser = (id: string) => {
+  db.prepare('DELETE FROM users WHERE id = ?').run(id)
+  deleteUserSessions(id)
+}
+
+/* ---------- sessions (the id is stored hashed; see server/auth.ts) ---------- */
+export const createSession = (id: string, userId: string, ver: string, expires: number) =>
+  db.prepare('INSERT INTO sessions (id, user_id, ver, expires, created_at) VALUES (?, ?, ?, ?, ?)').run(id, userId, ver, expires, Date.now())
+export const getSession = (id: string) => db.prepare('SELECT user_id AS userId, ver, expires FROM sessions WHERE id = ?').get(id) as { userId: string; ver: string; expires: number } | undefined
+export const deleteSession = (id: string) => db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+export const deleteUserSessions = (userId: string) => db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId)
+export const pruneSessions = () => db.prepare('DELETE FROM sessions WHERE expires <= ?').run(Date.now())
 
 // three levels (5 Nov 2026): the accounts made so far could edit everything, so they become the VP level
 migrate('roles-vp-team', () => {

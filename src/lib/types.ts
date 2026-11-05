@@ -101,6 +101,8 @@ export interface AuditEntry {
  */
 export type Role = 'vp' | 'team' | 'admin'
 export const ROLES: Record<Role, string> = { vp: 'نائب الرئيس (كل البنود)', team: 'الفريق (حقول الفريق فقط)', admin: 'مشرف' }
+/** The short names, for sentences («تغيّرت صلاحية «سارة» إلى «الفريق»»). */
+export const ROLE_NAMES: Record<Role, string> = { vp: 'نائب الرئيس', team: 'الفريق', admin: 'مشرف' }
 /** What a team account may change: the «يحدّثها الفريق» part of an item. */
 export const TEAM_FIELDS = ['effort', 'progress', 'status', 'ready', 'start', 'owner'] as const
 /** May change every field, add, delete, drag and confirm the VP's values. */

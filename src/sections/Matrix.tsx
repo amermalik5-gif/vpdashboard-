@@ -45,7 +45,7 @@ export function Matrix() {
   // the item under the pointer, in the matrix or the list beside it: both highlight it
   const [hover, setHover] = useState<string | null>(null)
   const svg = useRef<SVGSVGElement>(null)
-  const start = useRef<{ x: number; y: number; moved: boolean } | null>(null)
+  const start = useRef<{ x: number; y: number; moved: boolean; at: { x: number; y: number } } | null>(null)
   const tasks = state?.tasks ?? []
 
   // on narrow screens the 720-unit drawing shrinks: scale the text up so it stays readable
@@ -97,32 +97,33 @@ export function Matrix() {
   const clamp = (p: { x: number; y: number }) => ({ x: Math.min(BOX.x1, Math.max(BOX.x0, p.x)), y: Math.min(BOX.y1, Math.max(BOX.y0, p.y)) })
 
   const onDown = (e: RPointerEvent) => {
-    start.current = { x: e.clientX, y: e.clientY, moved: false }
+    start.current = { x: e.clientX, y: e.clientY, moved: false, at: toSvg(e) }
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
     setDrag(null)
   }
-  const onMove = (e: RPointerEvent, id: string, scored: boolean) => {
+  const onMove = (e: RPointerEvent, b: { t: Task; x: number; y: number }, scored: boolean) => {
     const s = start.current
     // visitors can only view: a press just opens the item
     if (!s || !canEditAll) return
     if (!s.moved && Math.hypot(e.clientX - s.x, e.clientY - s.y) < 5) return
     s.moved = true
     const p = toSvg(e)
-    setDrag({ id, ...(scored ? clamp(p) : p) })
+    setDrag({ id: b.t.id, ...(scored ? clamp({ x: b.x + p.x - s.at.x, y: b.y + p.y - s.at.y }) : p) })
   }
-  const onUp = (e: RPointerEvent, id: string, scored: boolean) => {
+  const onUp = (e: RPointerEvent, t: Task, scored: boolean) => {
     const s = start.current
     start.current = null
-    if (!s?.moved) return openTask(id)
+    if (!s?.moved) return openTask(t.id)
     setDrag(null)
     const raw = toSvg(e)
     // an item from the tray only gets values when it is dropped on the plot
     if (!scored && !inBox(raw)) return
-    const p = clamp(raw)
+    const p = scored ? clamp({ x: sx(t.urgency!) + raw.x - s.at.x, y: sy(t.priority!) + raw.y - s.at.y }) : clamp(raw)
     const urgency = Math.round(((BOX.x1 - p.x) / (BOX.x1 - BOX.x0)) * 10)
     const priority = Math.round(((BOX.y1 - p.y) / (BOX.y1 - BOX.y0)) * 10)
-    patchLocal(id, { priority, urgency })
-    run(() => api.updateTask(id, { priority, urgency }), `نُقلت إلى أهمية ${toArabicDigits(priority)} واستعجال ${toArabicDigits(urgency)}`)
+    if (scored && urgency === t.urgency && priority === t.priority) return
+    patchLocal(t.id, { priority, urgency })
+    run(() => api.updateTask(t.id, { priority, urgency }), `نُقل البند إلى أهمية ${toArabicDigits(priority)} واستعجال ${toArabicDigits(urgency)}`)
   }
 
   /** One numbered bubble: colour = status, size = effort. */
@@ -147,14 +148,14 @@ export function Matrix() {
         onFocus={() => setHover(t.id)}
         onBlur={() => setHover(null)}
         onPointerDown={onDown}
-        onPointerMove={(e) => onMove(e, t.id, scored)}
-        onPointerUp={(e) => onUp(e, t.id, scored)}
+        onPointerMove={(e) => onMove(e, b, scored)}
+        onPointerUp={(e) => onUp(e, t, scored)}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(t.id))}
       >
-        <title>{`${n}. ${t.title} · ${st.name}${isReady(t) ? ' · ★ جاهز للإطلاق' : ''}\n${scored ? `الأهمية ${toArabicDigits(t.priority ?? 0)} · الاستعجال ${toArabicDigits(t.urgency ?? 0)}` : canEditAll ? 'لم تُقيَّم بعد: اسحبها إلى المصفوفة' : 'لم تُقيَّم بعد'}`}</title>
+        <title>{`${n}. ${t.title}، ${st.name}${isReady(t) ? '، ★ جاهز للإطلاق' : ''}\n${scored ? `الأهمية ${toArabicDigits(t.priority ?? 0)}، الاستعجال ${toArabicDigits(t.urgency ?? 0)}` : canEditAll ? 'لم تُقيَّم بعد: اسحبها إلى المصفوفة' : 'لم تُقيَّم بعد'}`}</title>
         <circle cx={x} cy={y} r={b.r} fill={st.color} stroke="#fff" strokeWidth={2} />
         {hover === t.id && <circle cx={x} cy={y} r={b.r + 5} fill="none" stroke="var(--nwc-blue-500)" strokeWidth={2.5} />}
-        <text x={x} y={y + 4.5 * Math.min(k, 1.4)} textAnchor="middle" fontSize={13 * Math.min(k, 1.4)} fontWeight={700} fill="#fff" pointerEvents="none">
+        <text x={x} y={y + 4.5 * Math.min(k, 1.4)} textAnchor="middle" fontSize={13 * Math.min(k, 1.4)} fontWeight={700} fill={st.ink} pointerEvents="none">
           {n}
         </text>
         {isReady(t) && (
@@ -195,21 +196,23 @@ export function Matrix() {
             <g key={i}>
               <line x1={sx(i)} x2={sx(i)} y1={BOX.y0} y2={BOX.y1} stroke="var(--neutral-200)" strokeWidth={i === 5 ? 1.5 : 0.75} strokeDasharray={i === 5 ? undefined : '3 4'} />
               <line x1={BOX.x0} x2={BOX.x1} y1={sy(i)} y2={sy(i)} stroke="var(--neutral-200)" strokeWidth={i === 5 ? 1.5 : 0.75} strokeDasharray={i === 5 ? undefined : '3 4'} />
-              <text x={sx(i)} y={BOX.y1 + 18} textAnchor="middle" fontSize={11 * k} fill="var(--tertiary-500)">
+              <text x={sx(i)} y={BOX.y1 + 18} textAnchor="middle" fontSize={11 * k} fill="var(--fg-tertiary)">
                 {toArabicDigits(i)}
               </text>
-              <text x={BOX.x1 + 12} y={sy(i) + 4} textAnchor="start" fontSize={11 * k} fill="var(--tertiary-500)">
+              <text x={BOX.x1 + 12} y={sy(i) + 4} textAnchor="start" fontSize={11 * k} fill="var(--fg-tertiary)">
                 {toArabicDigits(i)}
               </text>
             </g>
           ))}
           <rect x={BOX.x0} y={BOX.y0} width={BOX.x1 - BOX.x0} height={BOX.y1 - BOX.y0} fill="none" stroke="var(--neutral-200)" />
           <text x={(BOX.x0 + BOX.x1) / 2} y={PLOT_H - 18} textAnchor="middle" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)">
-            ← مستوى الاستعجال (٠ غير طارئة · ١٠ طارئة جدًا)
+            مستوى الاستعجال: ٠ = غير طارئة، ١٠ = طارئة جدًا ←
           </text>
-          <text x={W - 10} y={(BOX.y0 + BOX.y1) / 2} textAnchor="middle" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)" transform={`rotate(90 ${W - 10} ${(BOX.y0 + BOX.y1) / 2})`}>
-            درجة الأهمية ←
-          </text>
+          {k <= 1.3 && (
+            <text x={W - 10} y={(BOX.y0 + BOX.y1) / 2} textAnchor="middle" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)" transform={`rotate(90 ${W - 10} ${(BOX.y0 + BOX.y1) / 2})`}>
+              درجة الأهمية: ٠ إلى ١٠ ←
+            </text>
+          )}
 
           {/* bubbles, each with its item number */}
           {placed.map((p) => bubble(p, true))}
@@ -291,7 +294,7 @@ function KeyList({ tasks, numbers, hover, setHover }: { tasks: Task[]; numbers: 
     const to = ids.indexOf(id) + 1
     if (!to || to === numbers.get(id)) return
     ids.forEach((x, i) => patchLocal(x, { position: i + 1 }))
-    void run(() => api.moveTask(id, to), `نُقل إلى الرقم ${toArabicDigits(to)}`)
+    void run(() => api.moveTask(id, to), `نُقل البند إلى الرقم ${toArabicDigits(to)}`)
   }
   const moveBy = (id: string, d: number) => {
     const ids = [...latest.current]
@@ -310,7 +313,7 @@ function KeyList({ tasks, numbers, hover, setHover }: { tasks: Task[]; numbers: 
           اسحب <GripVertical size={12} aria-hidden /> لتغيير ترتيب البنود وأرقامها
         </p>
       )}
-      <Reorder.Group as="ol" axis="y" values={order} onReorder={setOrder} layoutScroll className="flex flex-col lg:max-h-[660px] lg:overflow-y-auto" aria-label="أرقام البنود في المصفوفة">
+      <Reorder.Group as="ol" axis="y" values={order} onReorder={setOrder} layoutScroll className="-m-1 flex flex-col p-1 lg:max-h-[660px] lg:overflow-y-auto" aria-label="أرقام البنود في المصفوفة">
         {order.map((id, i) => {
           const t = byId.get(id)
           if (!t) return null
@@ -377,7 +380,7 @@ function KeyRow(p: { t: Task; n: number; active: boolean; onHover: (on: boolean)
         </button>
         )}
         <button type="button" onClick={p.onOpen} onFocus={() => p.onHover(true)} onBlur={() => p.onHover(false)} className="flex min-w-0 flex-1 items-center gap-2.5 py-1 pe-2 ps-1 text-start">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular text-white" style={{ background: st.color }}>
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular" style={{ background: st.color, color: st.ink }}>
             {toArabicDigits(p.n)}
           </span>
           <span className="flex min-w-0 flex-1 items-center gap-1.5">

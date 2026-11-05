@@ -82,16 +82,16 @@ Health check: `GET /healthz`.
 
 ## API
 
-All routes are under `/api`. Writes need a signed-in account (an httpOnly signed `vp_session` cookie, 30 days); the change log records that account's name.
+All routes are under `/api`. Writes need a signed-in account (an httpOnly `vp_session` cookie holding a random session id, 30 days; the server keeps only its hash in the `sessions` table); the change log records that account's name. Unknown `/api` paths answer 404 in JSON.
 
 | Method | Path | Who |
 |---|---|---|
 | GET | `/state`, `/stream` | everyone (`state.user` is the signed-in account, or null) |
 | PATCH | `/tasks/:id` | any account; a team account only effort, progress, status, ready, start and owner (rate limited) |
-| POST, DELETE | `/tasks`, `/tasks/:id`, `/tasks/:id/move`, `/events`, `/events/:id` (and PATCH `/events/:id`) | the VP and the admin (rate limited) |
+| POST, DELETE | `/tasks`, `/tasks/:id`, `/tasks/:id/move`; POST `/events`, PATCH `/events/:id` | the VP and the admin (rate limited) |
 | GET | `/audit?limit=50`, `/backup`, `/backup/tasks.csv`, `/users` | admin |
 | POST, PATCH, DELETE | `/users`, `/users/:id` | admin |
 | PUT | `/settings` | admin |
 | DELETE | `/events/:id` | admin |
 | POST | `/audit/:id/restore`, `/backup/restore` | admin |
-| POST | `/login` `{username, password}`, `/logout` | everyone (10 failed attempts lock an address out for 15 minutes) |
+| POST | `/login` `{username, password}`, `/logout` | everyone (10 failed attempts for one account from one address, or 30 from one address, lock it out for 15 minutes; signing out ends the session on the server) |
