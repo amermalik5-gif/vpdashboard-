@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import type { NextFunction, Request, Response } from 'express'
-import type { Role } from '../src/lib/types.ts'
+import { editsAll, type Role } from '../src/lib/types.ts'
 import { getUser } from './db.ts'
 
 const COOKIE = 'vp_session'
@@ -100,6 +100,15 @@ function sameOrigin(req: Request, res: Response) {
 export function requireEditor(req: Request, res: Response, next: NextFunction) {
   if (!sameOrigin(req, res)) return
   if (!currentUser(req)) return res.status(401).json({ error: 'اللوحة للعرض فقط. سجّل الدخول لتتمكن من التعديل.' })
+  next()
+}
+
+/** Adding, deleting, dragging and every field: the VP and the admin (team accounts only update their fields). */
+export function requireVP(req: Request, res: Response, next: NextFunction) {
+  if (!sameOrigin(req, res)) return
+  const u = currentUser(req)
+  if (!u) return res.status(401).json({ error: 'اللوحة للعرض فقط. سجّل الدخول لتتمكن من التعديل.' })
+  if (!editsAll(u.role)) return res.status(403).json({ error: 'حساب الفريق يحدّث حقول الفريق فقط: الجهد ونسبة الإنجاز والحالة وجاهز للإطلاق وتاريخ البدء والمسؤول.' })
   next()
 }
 

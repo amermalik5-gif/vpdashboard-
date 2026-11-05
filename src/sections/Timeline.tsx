@@ -74,7 +74,7 @@ function firstMonth(now: Date) {
 
 /** The dated items, seen as a timeline or as a month calendar, plus the ones without a date yet. */
 export function Timeline() {
-  const { state, openTask, labels, labelName, run, patchLocal, canEdit, toast } = useBoardCtx()
+  const { state, openTask, labels, labelName, run, patchLocal, canEditAll, toast } = useBoardCtx()
   const [view, setViewState] = useState<View>(savedView)
   const setView = (v: View) => {
     setViewState(v)
@@ -141,7 +141,7 @@ export function Timeline() {
   }
   // visitors can only view: nothing to drag
   const dragProps = (t: Task) => ({
-    draggable: canEdit,
+    draggable: canEditAll,
     onDragStart: (e: RDragEvent) => {
       e.dataTransfer.setData('text/plain', t.id)
       e.dataTransfer.effectAllowed = 'move'
@@ -227,7 +227,7 @@ export function Timeline() {
               ? 'كل بند يظهر في يومه، في مسار نوعه، ولونه حالته.'
               : 'كل بند في يومه من الشهر: الرئيس التنفيذي بالأحمر، والفعاليات بالأخضر، وغيرها بلون مستواه.'}{' '}
             اضغط على أي بند لفتحه.
-            {view === 'calendar' && scope === 'month' && canEdit && <span className="hidden md:inline"> واسحبه إلى يوم آخر لتغيير تاريخه.</span>}
+            {view === 'calendar' && scope === 'month' && canEditAll && <span className="hidden md:inline"> واسحبه إلى يوم آخر لتغيير تاريخه.</span>}
           </p>
         </div>
         {view === 'timeline' ? (
@@ -307,7 +307,7 @@ export function Timeline() {
           dragId={dragId}
           dragging={() => dragRef.current}
           dragProps={dragProps}
-          canDrag={canEdit}
+          canDrag={canEditAll}
           onDrop={moveTo}
         />
       )}
@@ -353,10 +353,10 @@ export function Timeline() {
                 onClick={() => openTask(t.id)}
                 onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(t.id))}
                 {...(view === 'calendar' ? dragProps(t) : {})}
-                title={`${t.title}\n${t.label ? labelName(t.label) : 'بدون مستوى'} · ${STATUS[statusOf(t)].name} · ${view === 'calendar' && canEdit ? 'اسحبه إلى يوم في التقويم لتحديد تاريخه' : 'حدّد التاريخ ليظهر على الخط الزمني والتقويم'}`}
+                title={`${t.title}\n${t.label ? labelName(t.label) : 'بدون مستوى'} · ${STATUS[statusOf(t)].name} · ${view === 'calendar' && canEditAll ? 'اسحبه إلى يوم في التقويم لتحديد تاريخه' : 'حدّد التاريخ ليظهر على الخط الزمني والتقويم'}`}
                 className={cn(
                   'inline-flex cursor-pointer select-none items-center gap-1.5 rounded-full border border-line-subtle bg-surface px-2.5 py-1 text-xs font-medium text-fg-primary hover:bg-brand-soft',
-                  view === 'calendar' && canEdit && 'md:cursor-grab',
+                  view === 'calendar' && canEditAll && 'md:cursor-grab',
                   dragId === t.id && 'opacity-40',
                 )}
               >

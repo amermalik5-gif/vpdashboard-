@@ -116,7 +116,7 @@ function Toasts() {
 }
 
 function Board() {
-  const { isAdmin, canEdit, refresh, toast, state, conn } = useBoardCtx()
+  const { isAdmin, canEdit, canEditAll, refresh, toast, state, conn } = useBoardCtx()
   const [signIn, setSignIn] = useState(false)
   const signOut = async () => {
     await api.logout()
@@ -142,7 +142,7 @@ function Board() {
           <Timeline />
         </Section>
         <Section id="register" spacing="none" className="py-8" labelledBy="register-title">
-          <SectionHeading id="register-title" title="المهام والفعاليات" note={canEdit ? 'عدّل أي قيمة مباشرة في الجدول' : 'للعرض فقط · سجّل الدخول للتعديل'} />
+          <SectionHeading id="register-title" title="المهام والفعاليات" note={canEditAll ? 'عدّل أي قيمة مباشرة في الجدول' : canEdit ? 'حساب الفريق: تحديث حقول الفريق' : 'للعرض فقط · سجّل الدخول للتعديل'} />
           <Register />
         </Section>
         {isAdmin && (

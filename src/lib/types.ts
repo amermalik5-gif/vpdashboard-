@@ -95,8 +95,16 @@ export interface AuditEntry {
   at: number
 }
 
-export type Role = 'editor' | 'admin'
-export const ROLES: Record<Role, string> = { editor: 'تعديل البنود', admin: 'مشرف' }
+/**
+ * Three levels (5 Nov 2026): the VP changes anything on the board; the team only the fields in
+ * «يحدّثها الفريق»; the admin also runs accounts, settings, backups and the change log.
+ */
+export type Role = 'vp' | 'team' | 'admin'
+export const ROLES: Record<Role, string> = { vp: 'نائب الرئيس (كل البنود)', team: 'الفريق (حقول الفريق فقط)', admin: 'مشرف' }
+/** What a team account may change: the «يحدّثها الفريق» part of an item. */
+export const TEAM_FIELDS = ['effort', 'progress', 'status', 'ready', 'start', 'owner'] as const
+/** May change every field, add, delete, drag and confirm the VP's values. */
+export const editsAll = (role: Role | undefined | null) => role === 'vp' || role === 'admin'
 
 /** A personal account (the password never leaves the server). */
 export interface UserInfo {

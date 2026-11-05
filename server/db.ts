@@ -384,4 +384,9 @@ export function updateUser(id: string, patch: { name?: string; role?: Role; acti
 }
 export const deleteUser = (id: string) => db.prepare('DELETE FROM users WHERE id = ?').run(id)
 
+// three levels (5 Nov 2026): the accounts made so far could edit everything, so they become the VP level
+migrate('roles-vp-team', () => {
+  db.prepare("UPDATE users SET role = 'vp' WHERE role = 'editor'").run()
+})
+
 export const DB_FILE = FILE

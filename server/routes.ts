@@ -1,8 +1,8 @@
 import { Router, type Request, type Response } from 'express'
-import { EXPECTATIONS, EVENT_FIELDS, ITEM_KINDS, ROLES, TASK_FIELDS, TASK_STATUSES, type Role, type EventItem, type Option, type Settings, type Task } from '../src/lib/types.ts'
+import { editsAll, EXPECTATIONS, EVENT_FIELDS, ITEM_KINDS, ROLES, TASK_FIELDS, TASK_STATUSES, TEAM_FIELDS, type Role, type EventItem, type Option, type Settings, type Task } from '../src/lib/types.ts'
 import * as store from './db.ts'
 import { snapshot } from './backup.ts'
-import { ADMIN_USERNAME, checkPassword, clearSessionCookie, currentUser, hashPassword, isAdmin, rateLimit, requireAdmin, requireEditor, setSessionCookie, verifyPassword } from './auth.ts'
+import { ADMIN_USERNAME, checkPassword, clearSessionCookie, currentUser, hashPassword, rateLimit, requireAdmin, requireEditor, requireVP, setSessionCookie, verifyPassword } from './auth.ts'
 
 /* ---------- live updates (Server-Sent Events) ---------- */
 let version = Date.now()
@@ -263,7 +263,7 @@ api.post(
 /* ---------- tasks: signed-in accounts add, edit and delete (visitors only view); the admin can restore from the change log ---------- */
 api.post(
   '/tasks',
-  requireEditor,
+  requireVP,
   writes,
   handle((req, res) => {
     const by = editor(req)
@@ -307,8 +307,12 @@ api.patch(
     const f = pick(req.body, TASK_FIELDS, cleanTaskField) as Record<string, unknown>
     const diff: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(f)) if (!same(v, before[k as keyof Task])) diff[k] = v
-    // «بانتظار تأكيد نائب الرئيس» clears only when the VP's own values are set, or the admin confirms
-    if (diff.draft === false && !isAdmin(req) && !VP_FIELDS.some((k) => k in diff)) delete diff.draft
+    const all = editsAll(currentUser(req)?.role)
+    // a team account updates the «يحدّثها الفريق» part only
+    if (!all && Object.keys(diff).some((k) => !(TEAM_FIELDS as readonly string[]).includes(k)))
+      return res.status(403).json({ error: 'حساب الفريق يحدّث حقول الفريق فقط: الجهد ونسبة الإنجاز والحالة وجاهز للإطلاق وتاريخ البدء والمسؤول.' })
+    // «بانتظار تأكيد نائب الرئيس» clears when the VP's own values are set, or the VP or the admin confirms
+    if (diff.draft === false && !all && !VP_FIELDS.some((k) => k in diff)) delete diff.draft
     if (Object.keys(diff).length) {
       store.db.transaction(() => {
         store.updateRow('tasks', before.id, diff, by)
@@ -324,7 +328,7 @@ api.patch(
 /* drag an item to another place in the list: any signed-in account, like any other edit */
 api.post(
   '/tasks/:id/move',
-  requireEditor,
+  requireVP,
   writes,
   handle((req, res) => {
     const by = editor(req)
@@ -343,7 +347,7 @@ api.post(
 
 api.delete(
   '/tasks/:id',
-  requireEditor,
+  requireVP,
   writes,
   handle((req, res) => {
     const by = editor(req)
@@ -359,7 +363,7 @@ api.delete(
 /* ---------- events ---------- */
 api.post(
   '/events',
-  requireEditor,
+  requireVP,
   writes,
   handle((req, res) => {
     const by = editor(req)
@@ -374,7 +378,7 @@ api.post(
 
 api.patch(
   '/events/:id',
-  requireEditor,
+  requireVP,
   writes,
   handle((req, res) => {
     const by = editor(req)
@@ -384,7 +388,7 @@ api.patch(
     const diff: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(f)) if (!same(v, before[k as keyof EventItem])) diff[k] = v
     // an event is confirmed by the admin, or by setting its date
-    if (diff.draft === false && !isAdmin(req) && !diff.date) delete diff.draft
+    if (diff.draft === false && !editsAll(currentUser(req)?.role) && !diff.date) delete diff.draft
     if (Object.keys(diff).length) {
       store.db.transaction(() => {
         store.updateRow('events', before.id, diff, by)
@@ -558,7 +562,7 @@ api.post(
     const username = str(b.username, 32, 'اسم المستخدم')
     if (!USERNAME.test(username)) throw new Invalid('اسم المستخدم من حرفين إلى ٣٢ حرفًا لاتينيًا أو رقمًا (ويمكن . _ -).')
     if (username.toLowerCase() === ADMIN_USERNAME || store.findUser(username)) throw new Invalid('اسم المستخدم مستخدم بالفعل.')
-    const u = store.insertUser({ username, name: cleanName(b.name), role: cleanRole(b.role ?? 'editor'), pass: hashPassword(cleanPassword(b.password)) })
+    const u = store.insertUser({ username, name: cleanName(b.name), role: cleanRole(b.role ?? 'team'), pass: hashPassword(cleanPassword(b.password)) })
     userLog(req, 'create', u, null, { username: u.username, name: u.name, role: u.role })
     res.status(201).json(store.publicUser(u))
   }),
@@ -577,7 +581,7 @@ api.patch(
     if ('active' in b) patch.active = !!b.active
     if ('password' in b) patch.pass = hashPassword(cleanPassword(b.password))
     // an admin can't lock themselves out
-    if (before.id === currentUser(req)?.id && (patch.role === 'editor' || patch.active === false)) throw new Invalid('لا يمكنك إيقاف حسابك أو إزالة صلاحية المشرف عنه.')
+    if (before.id === currentUser(req)?.id && ((patch.role && patch.role !== 'admin') || patch.active === false)) throw new Invalid('لا يمكنك إيقاف حسابك أو إزالة صلاحية المشرف عنه.')
     // a new password or a stopped account ends its sessions
     if (patch.pass || patch.active === false) patch.bumpVersion = true
     store.updateUser(before.id, patch)

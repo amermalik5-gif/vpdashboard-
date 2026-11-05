@@ -70,6 +70,8 @@ test('the admin creates the VP’s account; the VP signs in, edits, and the log 
   await page.getByLabel('الاسم (يظهر في السجل)').fill('نائب الرئيس')
   await page.locator('#u-username').fill('vp')
   await page.locator('#u-password').fill('vp-pass-123')
+  await expect(page.locator('#u-role')).toHaveValue('team')
+  await page.locator('#u-role').selectOption('vp')
   await page.getByRole('button', { name: 'إضافة حساب' }).click()
   await expect(page.locator('#admin').getByRole('cell', { name: 'نائب الرئيس', exact: true })).toBeVisible()
 
@@ -99,7 +101,7 @@ test('a new password or a stopped account ends that account’s sessions', async
   await page.goto('/')
   await signIn(page)
   const admin = page.request
-  const made = await (await admin.post('/api/users', { data: { username: 'temp.user', name: 'مؤقت', role: 'editor', password: 'first-pass-1' } })).json()
+  const made = await (await admin.post('/api/users', { data: { username: 'temp.user', name: 'مؤقت', role: 'team', password: 'first-pass-1' } })).json()
   const temp = await playwright.request.newContext({ baseURL: 'http://localhost:3099' })
   await apiSignIn(temp, { username: 'temp.user', password: 'first-pass-1' })
   const id = (await tasksOf(temp))[0].id
@@ -116,10 +118,10 @@ test('a new password or a stopped account ends that account’s sessions', async
   await temp.dispose()
 })
 
-test('a signed-in editor adds and edits an item; the change log names them', async ({ page }) => {
+test('a VP-level account adds and edits an item; the change log names them', async ({ page }) => {
   await page.goto('/')
   await signIn(page)
-  await page.request.post('/api/users', { data: { username: 'sara', name: 'سارة', role: 'editor', password: 'sara-pass-1' } })
+  await page.request.post('/api/users', { data: { username: 'sara', name: 'سارة', role: 'vp', password: 'sara-pass-1' } })
   await page.getByRole('button', { name: /المشرف/ }).first().click() // sign out
   await signIn(page, { username: 'sara', password: 'sara-pass-1' })
 
@@ -147,10 +149,48 @@ test('a signed-in editor adds and edits an item; the change log names them', asy
   await expect(page.locator('#activity')).toContainText('سارة غيّر المسؤول في البند «مهمة اختبار»')
 })
 
-test('a signed-in editor deletes an item; settings need the admin', async ({ page, request }) => {
+test('a team account updates only the team\u2019s fields', async ({ page, request }) => {
+  await apiSignIn(request)
+  expect((await request.post('/api/users', { data: { username: 'noor', name: 'نور (الفريق)', role: 'team', password: 'noor-pass-1' } })).status()).toBe(201)
+  await page.goto('/')
+  await signIn(page, { username: 'noor', password: 'noor-pass-1' })
+  // (renamed later by the live-update test)
+  const name = 'فيديو جيرا'
+  // the team's columns are editable, the VP's are plain text
+  await expect(page.getByLabel(`الجهد — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SELECT')
+  await expect(page.getByLabel(`الحالة — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SELECT')
+  await expect(page.getByLabel(`درجة الأهمية — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SPAN')
+  await expect(page.getByLabel(`ملاحظات — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SPAN')
+  await expect(page.getByLabel(`جاهز للإطلاق — ${name}`, { exact: true })).toBeEnabled()
+  // no adding, deleting or dragging
+  await expect(page.getByRole('button', { name: 'إضافة مهمة أو فعالية' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^تغيير ترتيب/ })).toHaveCount(0)
+  await page.getByLabel(`نسبة الإنجاز — ${name}`, { exact: true }).selectOption('40')
+  await expect.poll(async () => (await tasksOf(request)).find((t) => t.title === name)!.progress).toBe(40)
+  // the form: the VP's part is locked, the team's part saves
+  await page.locator('table').getByRole('button', { name }).click()
+  await expect(page.getByRole('heading', { name: 'تحديث حقول الفريق' })).toBeVisible()
+  await expect(page.getByLabel('المهمة / الفعالية', { exact: true })).toBeDisabled()
+  await expect(page.getByLabel('النوع', { exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'حذف', exact: true })).toHaveCount(0)
+  await page.getByLabel('المسؤول', { exact: true }).fill('نور')
+  await page.getByRole('button', { name: 'حفظ', exact: true }).click()
+  await expect.poll(async () => (await tasksOf(request)).find((t) => t.title === name)!.owner).toBe('نور')
+  // and the server holds the line
+  const id = (await tasksOf(request)).find((t) => t.title === name)!.id
+  const team = page.request
+  expect((await team.patch(`/api/tasks/${id}`, { data: { priority: 9 } })).status()).toBe(403)
+  expect((await team.patch(`/api/tasks/${id}`, { data: { notes: 'x' } })).status()).toBe(403)
+  expect((await team.post('/api/tasks', { data: { title: 'من الفريق' } })).status()).toBe(403)
+  expect((await team.post(`/api/tasks/${id}/move`, { data: { to: 1 } })).status()).toBe(403)
+  expect((await team.delete(`/api/tasks/${id}`)).status()).toBe(403)
+  expect((await team.patch(`/api/tasks/${id}`, { data: { status: 'on-track', effort: 3 } })).status()).toBe(200)
+})
+
+test('a VP-level account deletes an item; settings need the admin', async ({ page, request }) => {
   await apiSignIn(request)
   const added = await (await request.post('/api/tasks', { data: { title: 'بند للحذف' } })).json()
-  await request.post('/api/users', { data: { username: 'deleter', name: 'محرر', role: 'editor', password: 'del-pass-1' } })
+  await request.post('/api/users', { data: { username: 'deleter', name: 'محرر', role: 'vp', password: 'del-pass-1' } })
 
   await page.goto('/')
   await signIn(page, { username: 'deleter', password: 'del-pass-1' })
@@ -211,16 +251,24 @@ test('an overdue task stays visible with a badge and a count', async ({ page, re
   await expect(page.locator('#timeline').getByText('مهمة متأخرة للاختبار')).toBeVisible()
 })
 
-test('team saves keep the VP draft flag; a VP field change confirms it', async ({ request }) => {
-  await apiSignIn(request, { username: 'sara', password: 'sara-pass-1' })
-  const draft = (await tasksOf(request)).find((t) => t.draft)!
-  // a progress-only save from an editor: the draft flag must stay
-  await request.patch(`/api/tasks/${draft.id}`, { data: { progress: 15, draft: false } })
-  const after = (await tasksOf(request)).find((t) => t.id === draft.id)!
+test('team saves keep the VP draft flag; the VP confirms it', async ({ request, playwright }) => {
+  await apiSignIn(request, { username: 'noor', password: 'noor-pass-1' })
+  const [first, second] = (await tasksOf(request)).filter((t) => t.draft)
+  // a team save: the draft flag stays, and the team can't clear it
+  expect((await request.patch(`/api/tasks/${first.id}`, { data: { progress: 15 } })).status()).toBe(200)
+  expect((await request.patch(`/api/tasks/${first.id}`, { data: { draft: false } })).status()).toBe(403)
+  const after = (await tasksOf(request)).find((t) => t.id === first.id)!
   expect(after.draft).toBe(true)
-  expect(after.updatedBy).toBe('سارة')
-  await request.patch(`/api/tasks/${draft.id}`, { data: { priority: 3, draft: false } })
-  expect((await tasksOf(request)).find((t) => t.id === draft.id)!.draft).toBe(false)
+  expect(after.updatedBy).toBe('نور (الفريق)')
+  // the VP's own values confirm it; so does the VP's «تأكيد القيم» on its own
+  const vp = await playwright.request.newContext({ baseURL: 'http://localhost:3099' })
+  await apiSignIn(vp, { username: 'sara', password: 'sara-pass-1' })
+  await vp.patch(`/api/tasks/${first.id}`, { data: { priority: 3, draft: false } })
+  await vp.patch(`/api/tasks/${second.id}`, { data: { draft: false } })
+  const now = await tasksOf(request)
+  expect(now.find((t) => t.id === first.id)!.draft).toBe(false)
+  expect(now.find((t) => t.id === second.id)!.draft).toBe(false)
+  await vp.dispose()
 })
 
 test('admin settings being typed survive someone else saving a task', async ({ page, request }) => {
@@ -313,7 +361,7 @@ test('every item is in the matrix and on the timeline; awards sit at the preside
 
 test('the team sets the status, and the colour follows it', async ({ page, request }) => {
   await page.goto('/')
-  await signIn(page, { username: 'sara', password: 'sara-pass-1' })
+  await signIn(page, { username: 'noor', password: 'noor-pass-1' })
   const name = 'فيديو الذكاء الاصطناعي'
   const status = page.getByLabel(`الحالة — ${name}`, { exact: true })
   await expect(status).toHaveValue('not-started')
@@ -330,7 +378,7 @@ test('the team sets the status, and the colour follows it', async ({ page, reque
   expect((await page.request.patch(`/api/tasks/${(await tasksOf(request))[0].id}`, { data: { status: 'nope' } })).status()).toBe(400)
 })
 
-test('a signed-in editor drags the list beside the matrix to change the order and the numbers', async ({ page, request }) => {
+test('a VP-level account drags the list beside the matrix to change the order and the numbers', async ({ page, request }) => {
   await page.goto('/')
   await signIn(page, { username: 'sara', password: 'sara-pass-1' })
   const key = page.getByRole('list', { name: 'أرقام البنود في المصفوفة' })
@@ -415,10 +463,10 @@ test('the team marks an item ready for launch: a star by it, and a tile that lis
   const name = 'فيديو الدرونز'
   const ready = async () => (await tasksOf(request)).find((t) => t.title === name)!.ready
   await page.goto('/')
-  await signIn(page, { username: 'sara', password: 'sara-pass-1' })
+  await signIn(page, { username: 'noor', password: 'noor-pass-1' })
   const tile = page.locator('#top dl > div').filter({ has: page.locator('dt', { hasText: 'جاهزة للإطلاق' }) })
   await expect(tile.locator('dd')).toHaveText('٠')
-  // tick it straight in the table
+  // tick it straight in the table, as a team account
   await page.getByLabel(`جاهز للإطلاق — ${name}`, { exact: true }).check()
   await expect.poll(ready).toBe(true)
   await expect(tile.locator('dd')).toHaveText('١')

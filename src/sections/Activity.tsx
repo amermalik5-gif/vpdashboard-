@@ -3,7 +3,7 @@ import { Card } from '@/components/ui/Card'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { fmtTime, toArabicDigits } from '@/lib/format'
-import { EXPECTATIONS, FIELD_NAMES, type AuditEntry, type Expectation } from '@/lib/types'
+import { EXPECTATIONS, FIELD_NAMES, ROLES, type AuditEntry, type Expectation, type Role } from '@/lib/types'
 
 function show(field: string, v: unknown, labelName: (id: string) => string): string {
   if (v === null || v === undefined || v === '') return 'فارغ'
@@ -30,7 +30,7 @@ function sentence(a: AuditEntry, labelName: (id: string) => string) {
     const n = (a.new ?? {}) as { role?: string; active?: boolean; password?: string }
     const parts = [
       o.active !== n.active && (n.active ? 'أعاد تفعيل' : 'أوقف'),
-      o.role !== n.role && `غيّر صلاحية (${n.role === 'admin' ? 'مشرف' : 'تعديل البنود'})`,
+      o.role !== n.role && `غيّر صلاحية (${ROLES[n.role as Role] ?? n.role})`,
       n.password && 'غيّر كلمة مرور',
     ].filter(Boolean)
     return `${parts.length ? parts.join(' و') : 'عدّل'} ${acct}`

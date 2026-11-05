@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useBoard, type Conn } from './api'
-import type { AuditEntry, BoardState, Option, Task } from './types'
+import { editsAll, type AuditEntry, type BoardState, type Option, type Task } from './types'
 
 interface Toast {
   id: number
@@ -14,8 +14,10 @@ interface BoardApi {
   conn: Conn
   /** the signed-in account; null for a visitor */
   user: BoardState['user']
-  /** signed in: may add, edit, delete and drag (visitors only view) */
+  /** signed in: may update at least the team's fields (visitors only view) */
   canEdit: boolean
+  /** the VP or the admin: every field, adding, deleting, dragging and confirming drafts */
+  canEditAll: boolean
   isAdmin: boolean
   refresh: () => void
   labelName: (id: string) => string
@@ -84,6 +86,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       conn,
       user: state?.user ?? null,
       canEdit: !!state?.user,
+      canEditAll: editsAll(state?.user?.role),
       isAdmin: state?.user?.role === 'admin',
       refresh,
       labels,

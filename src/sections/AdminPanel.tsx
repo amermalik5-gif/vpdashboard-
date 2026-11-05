@@ -65,7 +65,7 @@ function OptionList({ title, note, items, onChange }: { title: string; note: str
   )
 }
 
-const blankUser = { name: '', username: '', password: '', role: 'editor' as Role }
+const blankUser = { name: '', username: '', password: '', role: 'team' as Role }
 
 /**
  * Admin-only: the personal accounts that may edit. Anyone with the link can view; the built-in
@@ -103,7 +103,7 @@ function Users() {
         المستخدمون
       </h4>
       <p className="mt-1 max-w-prose text-sm text-fg-secondary">
-        كل من لديه الرابط يرى اللوحة فقط. للتعديل يحتاج الشخص حسابًا هنا، ويظهر اسمه في سجل التعديلات. صلاحية «مشرف» تدير أيضًا الحسابات والإعدادات والنسخ الاحتياطي. الحساب المدمج «admin» يبقى دائمًا.
+        كل من لديه الرابط يرى اللوحة فقط. للتعديل يحتاج الشخص حسابًا هنا، ويظهر اسمه في سجل التعديلات. «نائب الرئيس» يعدّل كل شيء في البنود ويضيف ويحذف ويسحب، و«الفريق» يحدّث حقول الفريق فقط (الجهد والإنجاز والحالة وجاهز للإطلاق وتاريخ البدء والمسؤول)، و«مشرف» يدير أيضًا الحسابات والإعدادات والنسخ الاحتياطي. الحساب المدمج «admin» يبقى دائمًا.
       </p>
 
       <div className="mt-4 overflow-x-auto">

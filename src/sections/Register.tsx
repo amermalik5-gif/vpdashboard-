@@ -54,13 +54,30 @@ function Overdue({ t, className }: { t: Task; className?: string }) {
 const Num = ({ v }: { v: number | null }) => <span className="font-ui tabular">{v == null ? '–' : toArabicDigits(v)}</span>
 
 /* ---------- cells edited in place (plain text for visitors, who can only view) ---------- */
-const Locked = createContext(false)
+/** Which column groups are read-only for the signed-in account. */
+const Locked = createContext({ vp: true, team: true })
 const textCls = 'block min-h-9 px-2 py-2 text-sm text-fg-primary'
 const cellCls =
   'h-9 w-full min-w-0 rounded-md border border-transparent bg-transparent px-2 text-sm text-fg-primary transition-colors duration-fast hover:border-line-subtle hover:bg-surface focus:border-brand focus:bg-surface focus:outline-none disabled:opacity-60'
 
-function SelectCell({ value, options, label, onSave, className }: { value: string; options: [string, string][]; label: string; onSave: (v: string) => void; className?: string }) {
-  if (useContext(Locked))
+function SelectCell({
+  value,
+  options,
+  label,
+  onSave,
+  className,
+  team = false,
+}: {
+  value: string
+  options: [string, string][]
+  label: string
+  onSave: (v: string) => void
+  className?: string
+  /** one of the team's columns (any signed-in account); otherwise the VP's */
+  team?: boolean
+}) {
+  const locked = useContext(Locked)
+  if (team ? locked.team : locked.vp)
     return (
       <span aria-label={label} className={cn(textCls, className)}>
         {options.find(([v]) => v === value)?.[1] ?? '–'}
@@ -81,7 +98,7 @@ const numOptions = (values: number[], suffix = ''): [string, string][] => [['', 
 
 /** Free text: saved when the field loses focus or on Enter, never on every keystroke. */
 function TextCell({ value, label, placeholder, onSave }: { value: string; label: string; placeholder?: string; onSave: (v: string) => void }) {
-  const locked = useContext(Locked)
+  const locked = useContext(Locked).vp
   const [draft, setDraft] = useState(value)
   const focused = useRef(false)
   useEffect(() => {
@@ -135,7 +152,7 @@ const KIND_OPTIONS: [string, string][] = [['', '–'], ...(Object.entries(ITEM_K
 const STATUS_OPTIONS = Object.entries(TASK_STATUSES) as [Status, string][]
 
 export function Register() {
-  const { state, labels, labelName, openTask, run, patchLocal, readyOnly, setReadyOnly, canEdit } = useBoardCtx()
+  const { state, labels, labelName, openTask, run, patchLocal, readyOnly, setReadyOnly, canEdit, canEditAll } = useBoardCtx()
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<Sort>('order')
   const tasks = useMemo(() => {
@@ -165,7 +182,7 @@ export function Register() {
         </label>
         <div className="flex flex-wrap items-center gap-3">
           <Tabs label="ترتيب المهام والفعاليات" items={SORTS} value={sort} onChange={setSort} />
-          {canEdit && (
+          {canEditAll && (
             <Button icon={<Plus size={18} aria-hidden />} onClick={() => openTask(null)}>
               إضافة مهمة أو فعالية
             </Button>
@@ -186,7 +203,7 @@ export function Register() {
       )}
 
       {/* wide screens: one table, every value editable in place */}
-      <Locked.Provider value={!canEdit}>
+      <Locked.Provider value={{ vp: !canEditAll, team: !canEdit }}>
       <div className="hidden overflow-x-auto lg:block">
         <table className="w-full min-w-[1280px] border-collapse text-sm">
           <thead>
@@ -266,7 +283,7 @@ export function Register() {
                     />
                   </td>
                   <td className="bg-blue-50/30 py-2">
-                    {canEdit ? (
+                    {canEditAll ? (
                       <input
                         type="date"
                         aria-label={`التاريخ — ${name}`}
@@ -286,8 +303,9 @@ export function Register() {
                   </td>
                   <td className="py-2">
                     <SelectCell
+                      team
                       label={`الجهد — ${name}`}
-                      className="text-center font-ui tabular"
+                      className="min-w-[60px] text-center font-ui tabular"
                       value={t.effort == null ? '' : String(t.effort)}
                       options={numOptions(ONE_TO_TEN)}
                       onSave={(v) => save(t, { effort: num(v) })}
@@ -295,15 +313,16 @@ export function Register() {
                   </td>
                   <td className="py-2">
                     <SelectCell
+                      team
                       label={`نسبة الإنجاز — ${name}`}
-                      className="text-center font-ui tabular"
+                      className="min-w-[76px] text-center font-ui tabular"
                       value={String(t.progress)}
                       options={[...(PROGRESS.includes(t.progress) ? [] : [[String(t.progress), `${toArabicDigits(t.progress)}٪`] as [string, string]]), ...numOptions(PROGRESS, '٪').slice(1)]}
                       onSave={(v) => save(t, progressPatch(t, Number(v)))}
                     />
                   </td>
                   <td className="py-2">
-                    <SelectCell label={`الحالة — ${name}`} value={statusOf(t)} options={STATUS_OPTIONS} onSave={(v) => save(t, statusPatch(v as Status))} />
+                    <SelectCell team className="min-w-[118px]" label={`الحالة — ${name}`} value={statusOf(t)} options={STATUS_OPTIONS} onSave={(v) => save(t, statusPatch(v as Status))} />
                   </td>
                   <td className="py-2 text-center">
                     <input
@@ -393,10 +412,14 @@ export function Register() {
       </ul>
 
       {!tasks.length && (
-        <p className="p-8 text-center text-fg-tertiary">{readyOnly ? 'لا توجد بنود جاهزة للإطلاق بعد. علّم «جاهز للإطلاق» في البند ليظهر هنا.' : q ? 'لا شيء يطابق البحث.' : canEdit ? 'لا توجد مهام أو فعاليات بعد. اضغط «إضافة مهمة أو فعالية» لإضافة أول بند.' : 'لا توجد مهام أو فعاليات بعد.'}</p>
+        <p className="p-8 text-center text-fg-tertiary">{readyOnly ? 'لا توجد بنود جاهزة للإطلاق بعد. علّم «جاهز للإطلاق» في البند ليظهر هنا.' : q ? 'لا شيء يطابق البحث.' : canEditAll ? 'لا توجد مهام أو فعاليات بعد. اضغط «إضافة مهمة أو فعالية» لإضافة أول بند.' : 'لا توجد مهام أو فعاليات بعد.'}</p>
       )}
       <p className="border-t border-line-subtle px-5 py-3 text-xs text-fg-tertiary">
-        {canEdit ? 'عدّل أي قيمة مباشرة في الجدول وتُحفظ فورًا. ' : 'للعرض فقط. سجّل الدخول للتعديل. '}
+        {canEditAll
+          ? 'عدّل أي قيمة مباشرة في الجدول وتُحفظ فورًا. '
+          : canEdit
+            ? 'حساب الفريق يحدّث أعمدة الجهد والإنجاز والحالة وجاهز للإطلاق مباشرة في الجدول. '
+            : 'للعرض فقط. سجّل الدخول للتعديل. '}
         الأعمدة المظللة يحددها نائب الرئيس، والجهد ونسبة الإنجاز والحالة يحدّثها الفريق، والحالة تحدد اللون. اضغط على الاسم لفتح كل التفاصيل.
       </p>
     </Card>

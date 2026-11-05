@@ -51,9 +51,9 @@ function Scale({ id, label, hint, value, min, max, step = 1, suffix = '', onChan
   )
 }
 
-function Group({ title, note, tone, children }: { title: string; note: string; tone: 'vp' | 'team'; children: ReactNode }) {
+function Group({ title, note, tone, disabled, children }: { title: string; note: string; tone: 'vp' | 'team'; disabled?: boolean; children: ReactNode }) {
   return (
-    <fieldset className={tone === 'vp' ? 'rounded-xl border border-blue-100 bg-brand-soft p-4 md:p-5' : 'rounded-xl border border-line-subtle bg-surface p-4 md:p-5'}>
+    <fieldset disabled={disabled} className={tone === 'vp' ? 'rounded-xl border border-blue-100 bg-brand-soft p-4 md:p-5' : 'rounded-xl border border-line-subtle bg-surface p-4 md:p-5'}>
       <legend className="px-1 text-sm font-medium text-brand">{title}</legend>
       <p className="mb-4 text-xs text-fg-tertiary">{note}</p>
       <div className="grid gap-4 sm:grid-cols-2">{children}</div>
@@ -63,7 +63,7 @@ function Group({ title, note, tone, children }: { title: string; note: string; t
 
 /** Drawer to add or edit one task: one form for every field (the booklet's Sheet). */
 export function TaskSheet() {
-  const { state, editing, closeTask, isAdmin, canEdit, run, labels } = useBoardCtx()
+  const { state, editing, closeTask, canEdit, canEditAll, run, labels } = useBoardCtx()
   const task = editing.id ? state?.tasks.find((t) => t.id === editing.id) : undefined
   const [f, setF] = useState<Form>(blank)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -121,7 +121,7 @@ export function TaskSheet() {
         <div className="flex items-center gap-2">
           <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: st.color }} />
           <h2 id="task-sheet-title" className="truncate text-lg font-medium">
-            {!task ? 'مهمة أو فعالية جديدة' : canEdit ? 'تعديل' : 'تفاصيل البند'}
+            {!task ? 'مهمة أو فعالية جديدة' : canEditAll ? 'تعديل' : canEdit ? 'تحديث حقول الفريق' : 'تفاصيل البند'}
           </h2>
           {isReady(current) && <ReadyStar size={16} />}
           {task?.draft && (
@@ -136,17 +136,17 @@ export function TaskSheet() {
         <fieldset disabled={!canEdit} className="flex min-w-0 flex-col gap-5">
         {task?.draft && (
           <p className="rounded-lg border border-warning-100 bg-warning-50 px-4 py-3 text-sm text-warning-700">
-            هذا البند بانتظار موافقة نائب الرئيس. يُعتمد عند تغيير أيٍّ من قيم نائب الرئيس، ويستطيع المشرف اعتماده كما هو بزر «تأكيد القيم».
+            هذا البند بانتظار موافقة نائب الرئيس. يُعتمد عند تغيير أيٍّ من قيم نائب الرئيس، ويستطيع نائب الرئيس أو المشرف اعتماده كما هو بزر «تأكيد القيم».
           </p>
         )}
         <div>
           <label htmlFor="t-title" className="field-label">
             المهمة / الفعالية
           </label>
-          <input id="t-title" className="field h-12 text-md" required maxLength={160} value={f.title} onChange={(e) => set('title', e.target.value)} placeholder="مثال: حفل تدشين الاستراتيجية" />
+          <input id="t-title" className="field h-12 text-md" disabled={!canEditAll} required maxLength={160} value={f.title} onChange={(e) => set('title', e.target.value)} placeholder="مثال: حفل تدشين الاستراتيجية" />
         </div>
 
-        <Group tone="vp" title="يحددها نائب الرئيس" note="درجة الأهمية ومستوى الاستعجال تحددان الموقع في المصفوفة، والتاريخ يحدد الموقع في الخط الزمني.">
+        <Group tone="vp" disabled={!canEditAll} title="يحددها نائب الرئيس" note="درجة الأهمية ومستوى الاستعجال تحددان الموقع في المصفوفة، والتاريخ يحدد الموقع في الخط الزمني.">
           <div>
             <label htmlFor="t-kind" className="field-label">
               النوع
@@ -217,12 +217,12 @@ export function TaskSheet() {
           <Scale id="t-e" label="الجهد" hint="١٠ = مثل اليوم الرقمي" value={f.effort} min={1} max={10} onChange={(v) => set('effort', v)} />
           <Scale id="t-pr" label="نسبة الإنجاز" value={f.progress} min={0} max={100} step={5} suffix="٪" onChange={(v) => setF((x) => ({ ...x, ...progressPatch(x as Task, v ?? 0) }))} />
           <div>
-            <label htmlFor="t-status" className="field-label">
+            <label htmlFor="t-status" className="field-label flex items-center gap-1.5">
               الحالة
+              <span aria-hidden className="h-2.5 w-2.5 rounded-full" style={{ background: st.color }} />
             </label>
-            <div className="relative">
-              <span aria-hidden className="pointer-events-none absolute start-3 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full" style={{ background: st.color }} />
-              <select id="t-status" className="field ps-8" value={statusOf(current)} onChange={(e) => setF((x) => ({ ...x, ...statusPatch(e.target.value as Status) }))}>
+            <div>
+              <select id="t-status" className="field" value={statusOf(current)} onChange={(e) => setF((x) => ({ ...x, ...statusPatch(e.target.value as Status) }))}>
                 {(Object.entries(TASK_STATUSES) as [Status, string][]).map(([k, name]) => (
                   <option key={k} value={k}>
                     {name}
@@ -283,7 +283,7 @@ export function TaskSheet() {
           <Button type="submit" size="lg" disabled={saving}>
             {task ? 'حفظ' : 'إضافة'}
           </Button>
-          {task?.draft && isAdmin && (
+          {task?.draft && canEditAll && (
             <Button variant="outline" size="lg" disabled={saving} onClick={() => void save(true)}>
               تأكيد القيم
             </Button>
@@ -291,7 +291,7 @@ export function TaskSheet() {
           <Button variant="ghost" size="lg" onClick={closeTask}>
             إلغاء
           </Button>
-          {task && (
+          {task && canEditAll && (
             <div className="ms-auto flex items-center gap-2">
               {confirmDelete ? (
                 <>
