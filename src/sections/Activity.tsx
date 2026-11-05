@@ -2,8 +2,9 @@ import { History, RotateCcw } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
-import { fmtTime, toArabicDigits } from '@/lib/format'
-import { EXPECTATIONS, FIELD_NAMES, type AuditEntry, type Expectation } from '@/lib/types'
+import { fmtDate, fmtTime, toArabicDigits } from '@/lib/format'
+import { parseDate } from '@/lib/schedule'
+import { EXPECTATIONS, FIELD_NAMES, ITEM_KINDS, ROLES, TASK_STATUSES, type AuditEntry, type Expectation, type ItemKind, type Role, type TaskStatus } from '@/lib/types'
 
 function show(field: string, v: unknown, labelName: (id: string) => string): string {
   if (v === null || v === undefined || v === '') return 'فارغ'
@@ -12,6 +13,10 @@ function show(field: string, v: unknown, labelName: (id: string) => string): str
   if (field === 'progress') return `${toArabicDigits(Number(v))}٪`
   if (field === 'draft') return v ? 'غير مؤكد' : 'مؤكد'
   if (field === 'ready') return v ? 'جاهز' : 'غير جاهز'
+  // stored codes and ISO dates, in the words the board uses
+  if (field === 'status') return TASK_STATUSES[v as Exclude<TaskStatus, ''>] ?? String(v)
+  if (field === 'kind') return ITEM_KINDS[v as Exclude<ItemKind, ''>] ?? String(v)
+  if ((field === 'end' || field === 'start' || field === 'date') && typeof v === 'string' && parseDate(v)) return fmtDate(parseDate(v)!)
   if (Array.isArray(v)) return `${toArabicDigits(v.length)} عناصر`
   if (typeof v === 'number') return toArabicDigits(v)
   const s = String(v)
@@ -30,7 +35,7 @@ function sentence(a: AuditEntry, labelName: (id: string) => string) {
     const n = (a.new ?? {}) as { role?: string; active?: boolean; password?: string }
     const parts = [
       o.active !== n.active && (n.active ? 'أعاد تفعيل' : 'أوقف'),
-      o.role !== n.role && `غيّر صلاحية (${n.role === 'admin' ? 'مشرف' : 'تعديل البنود'})`,
+      o.role !== n.role && `غيّر صلاحية (${ROLES[n.role as Role] ?? n.role})`,
       n.password && 'غيّر كلمة مرور',
     ].filter(Boolean)
     return `${parts.length ? parts.join(' و') : 'عدّل'} ${acct}`

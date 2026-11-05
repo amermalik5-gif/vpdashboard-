@@ -1,8 +1,7 @@
 import type { ItemKind, Task } from '../src/lib/types.ts'
+import { riyadhDay } from './time.ts'
 
 type NewTask = Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'position' | 'ready'>
-
-const iso = (d: Date) => d.toISOString().slice(0, 10)
 
 /** Titles of the sample rows from the first version, removed when the real list arrives. */
 export const SAMPLE_TITLES = [
@@ -31,7 +30,7 @@ const PENDING = 'بانتظار موافقة نائب الرئيس والتنس�
  * (effort, progress, most levels and dates) are left empty for the team to fill in.
  */
 export function realItems(): NewTask[] {
-  const today = iso(new Date())
+  const today = riyadhDay()
   const item = (title: string, kind: ItemKind, priority: number | null, urgency: number | null, more: Partial<NewTask> = {}): NewTask => ({
     title,
     kind,

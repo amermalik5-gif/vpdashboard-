@@ -18,7 +18,12 @@ async function signIn(page: Page, who: Who = ADMIN) {
 async function apiSignIn(request: APIRequestContext, who: Who = ADMIN) {
   expect((await request.post('/api/login', { data: who })).status()).toBe(200)
 }
-const iso = (days: number) => new Date(Date.now() + days * 864e5).toISOString().slice(0, 10)
+/** A day relative to today, in local time (as the board counts days). */
+const iso = (days: number) => {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 const tasksOf = async (request: APIRequestContext) => (await (await request.get('/api/state')).json()).tasks as Record<string, unknown>[]
 
 test('renders right-to-left with the seeded board and no errors', async ({ page }) => {
@@ -70,6 +75,8 @@ test('the admin creates the VP’s account; the VP signs in, edits, and the log 
   await page.getByLabel('الاسم (يظهر في السجل)').fill('نائب الرئيس')
   await page.locator('#u-username').fill('vp')
   await page.locator('#u-password').fill('vp-pass-123')
+  await expect(page.locator('#u-role')).toHaveValue('team')
+  await page.locator('#u-role').selectOption('vp')
   await page.getByRole('button', { name: 'إضافة حساب' }).click()
   await expect(page.locator('#admin').getByRole('cell', { name: 'نائب الرئيس', exact: true })).toBeVisible()
 
@@ -99,7 +106,7 @@ test('a new password or a stopped account ends that account’s sessions', async
   await page.goto('/')
   await signIn(page)
   const admin = page.request
-  const made = await (await admin.post('/api/users', { data: { username: 'temp.user', name: 'مؤقت', role: 'editor', password: 'first-pass-1' } })).json()
+  const made = await (await admin.post('/api/users', { data: { username: 'temp.user', name: 'مؤقت', role: 'team', password: 'first-pass-1' } })).json()
   const temp = await playwright.request.newContext({ baseURL: 'http://localhost:3099' })
   await apiSignIn(temp, { username: 'temp.user', password: 'first-pass-1' })
   const id = (await tasksOf(temp))[0].id
@@ -116,10 +123,10 @@ test('a new password or a stopped account ends that account’s sessions', async
   await temp.dispose()
 })
 
-test('a signed-in editor adds and edits an item; the change log names them', async ({ page }) => {
+test('a VP-level account adds and edits an item; the change log names them', async ({ page }) => {
   await page.goto('/')
   await signIn(page)
-  await page.request.post('/api/users', { data: { username: 'sara', name: 'سارة', role: 'editor', password: 'sara-pass-1' } })
+  await page.request.post('/api/users', { data: { username: 'sara', name: 'سارة', role: 'vp', password: 'sara-pass-1' } })
   await page.getByRole('button', { name: /المشرف/ }).first().click() // sign out
   await signIn(page, { username: 'sara', password: 'sara-pass-1' })
 
@@ -147,10 +154,48 @@ test('a signed-in editor adds and edits an item; the change log names them', asy
   await expect(page.locator('#activity')).toContainText('سارة غيّر المسؤول في البند «مهمة اختبار»')
 })
 
-test('a signed-in editor deletes an item; settings need the admin', async ({ page, request }) => {
+test('a team account updates only the team\u2019s fields', async ({ page, request }) => {
+  await apiSignIn(request)
+  expect((await request.post('/api/users', { data: { username: 'noor', name: 'نور (الفريق)', role: 'team', password: 'noor-pass-1' } })).status()).toBe(201)
+  await page.goto('/')
+  await signIn(page, { username: 'noor', password: 'noor-pass-1' })
+  // (renamed later by the live-update test)
+  const name = 'فيديو جيرا'
+  // the team's columns are editable, the VP's are plain text
+  await expect(page.getByLabel(`الجهد — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SELECT')
+  await expect(page.getByLabel(`الحالة — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SELECT')
+  await expect(page.getByLabel(`درجة الأهمية — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SPAN')
+  await expect(page.getByLabel(`ملاحظات — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SPAN')
+  await expect(page.getByLabel(`جاهز للإطلاق — ${name}`, { exact: true })).toBeEnabled()
+  // no adding, deleting or dragging
+  await expect(page.getByRole('button', { name: 'إضافة مهمة أو فعالية' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^تغيير ترتيب/ })).toHaveCount(0)
+  await page.getByLabel(`نسبة الإنجاز — ${name}`, { exact: true }).selectOption('40')
+  await expect.poll(async () => (await tasksOf(request)).find((t) => t.title === name)!.progress).toBe(40)
+  // the form: the VP's part is locked, the team's part saves
+  await page.locator('table').getByRole('button', { name }).click()
+  await expect(page.getByRole('heading', { name: 'تحديث حقول الفريق' })).toBeVisible()
+  await expect(page.getByLabel('المهمة / الفعالية', { exact: true })).toBeDisabled()
+  await expect(page.getByLabel('النوع', { exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'حذف', exact: true })).toHaveCount(0)
+  await page.getByLabel('المسؤول', { exact: true }).fill('نور')
+  await page.getByRole('button', { name: 'حفظ', exact: true }).click()
+  await expect.poll(async () => (await tasksOf(request)).find((t) => t.title === name)!.owner).toBe('نور')
+  // and the server holds the line
+  const id = (await tasksOf(request)).find((t) => t.title === name)!.id
+  const team = page.request
+  expect((await team.patch(`/api/tasks/${id}`, { data: { priority: 9 } })).status()).toBe(403)
+  expect((await team.patch(`/api/tasks/${id}`, { data: { notes: 'x' } })).status()).toBe(403)
+  expect((await team.post('/api/tasks', { data: { title: 'من الفريق' } })).status()).toBe(403)
+  expect((await team.post(`/api/tasks/${id}/move`, { data: { to: 1 } })).status()).toBe(403)
+  expect((await team.delete(`/api/tasks/${id}`)).status()).toBe(403)
+  expect((await team.patch(`/api/tasks/${id}`, { data: { status: 'on-track', effort: 3 } })).status()).toBe(200)
+})
+
+test('a VP-level account deletes an item; settings need the admin', async ({ page, request }) => {
   await apiSignIn(request)
   const added = await (await request.post('/api/tasks', { data: { title: 'بند للحذف' } })).json()
-  await request.post('/api/users', { data: { username: 'deleter', name: 'محرر', role: 'editor', password: 'del-pass-1' } })
+  await request.post('/api/users', { data: { username: 'deleter', name: 'محرر', role: 'vp', password: 'del-pass-1' } })
 
   await page.goto('/')
   await signIn(page, { username: 'deleter', password: 'del-pass-1' })
@@ -211,16 +256,24 @@ test('an overdue task stays visible with a badge and a count', async ({ page, re
   await expect(page.locator('#timeline').getByText('مهمة متأخرة للاختبار')).toBeVisible()
 })
 
-test('team saves keep the VP draft flag; a VP field change confirms it', async ({ request }) => {
-  await apiSignIn(request, { username: 'sara', password: 'sara-pass-1' })
-  const draft = (await tasksOf(request)).find((t) => t.draft)!
-  // a progress-only save from an editor: the draft flag must stay
-  await request.patch(`/api/tasks/${draft.id}`, { data: { progress: 15, draft: false } })
-  const after = (await tasksOf(request)).find((t) => t.id === draft.id)!
+test('team saves keep the VP draft flag; the VP confirms it', async ({ request, playwright }) => {
+  await apiSignIn(request, { username: 'noor', password: 'noor-pass-1' })
+  const [first, second] = (await tasksOf(request)).filter((t) => t.draft)
+  // a team save: the draft flag stays, and the team can't clear it
+  expect((await request.patch(`/api/tasks/${first.id}`, { data: { progress: 15 } })).status()).toBe(200)
+  expect((await request.patch(`/api/tasks/${first.id}`, { data: { draft: false } })).status()).toBe(403)
+  const after = (await tasksOf(request)).find((t) => t.id === first.id)!
   expect(after.draft).toBe(true)
-  expect(after.updatedBy).toBe('سارة')
-  await request.patch(`/api/tasks/${draft.id}`, { data: { priority: 3, draft: false } })
-  expect((await tasksOf(request)).find((t) => t.id === draft.id)!.draft).toBe(false)
+  expect(after.updatedBy).toBe('نور (الفريق)')
+  // the VP's own values confirm it; so does the VP's «تأكيد القيم» on its own
+  const vp = await playwright.request.newContext({ baseURL: 'http://localhost:3099' })
+  await apiSignIn(vp, { username: 'sara', password: 'sara-pass-1' })
+  await vp.patch(`/api/tasks/${first.id}`, { data: { priority: 3, draft: false } })
+  await vp.patch(`/api/tasks/${second.id}`, { data: { draft: false } })
+  const now = await tasksOf(request)
+  expect(now.find((t) => t.id === first.id)!.draft).toBe(false)
+  expect(now.find((t) => t.id === second.id)!.draft).toBe(false)
+  await vp.dispose()
 })
 
 test('admin settings being typed survive someone else saving a task', async ({ page, request }) => {
@@ -313,7 +366,7 @@ test('every item is in the matrix and on the timeline; awards sit at the preside
 
 test('the team sets the status, and the colour follows it', async ({ page, request }) => {
   await page.goto('/')
-  await signIn(page, { username: 'sara', password: 'sara-pass-1' })
+  await signIn(page, { username: 'noor', password: 'noor-pass-1' })
   const name = 'فيديو الذكاء الاصطناعي'
   const status = page.getByLabel(`الحالة — ${name}`, { exact: true })
   await expect(status).toHaveValue('not-started')
@@ -330,7 +383,7 @@ test('the team sets the status, and the colour follows it', async ({ page, reque
   expect((await page.request.patch(`/api/tasks/${(await tasksOf(request))[0].id}`, { data: { status: 'nope' } })).status()).toBe(400)
 })
 
-test('a signed-in editor drags the list beside the matrix to change the order and the numbers', async ({ page, request }) => {
+test('a VP-level account drags the list beside the matrix to change the order and the numbers', async ({ page, request }) => {
   await page.goto('/')
   await signIn(page, { username: 'sara', password: 'sara-pass-1' })
   const key = page.getByRole('list', { name: 'أرقام البنود في المصفوفة' })
@@ -415,10 +468,10 @@ test('the team marks an item ready for launch: a star by it, and a tile that lis
   const name = 'فيديو الدرونز'
   const ready = async () => (await tasksOf(request)).find((t) => t.title === name)!.ready
   await page.goto('/')
-  await signIn(page, { username: 'sara', password: 'sara-pass-1' })
+  await signIn(page, { username: 'noor', password: 'noor-pass-1' })
   const tile = page.locator('#top dl > div').filter({ has: page.locator('dt', { hasText: 'جاهزة للإطلاق' }) })
   await expect(tile.locator('dd')).toHaveText('٠')
-  // tick it straight in the table
+  // tick it straight in the table, as a team account
   await page.getByLabel(`جاهز للإطلاق — ${name}`, { exact: true }).check()
   await expect.poll(ready).toBe(true)
   await expect(tile.locator('dd')).toHaveText('١')
@@ -469,4 +522,215 @@ test('in the calendar, dragging an item to another day changes its date', async 
   await expect.poll(end).toBe('')
   await tl.getByLabel('بنود بلا تاريخ').getByRole('button', { name: title }).dragTo(cal.locator(`[data-day="${day(now)}"]`))
   await expect.poll(end).toBe(day(now))
+})
+
+/* ---------- the audit fixes (5 Nov 2026) ---------- */
+const BASE = 'http://localhost:3099'
+
+test('deleting from the drawer closes it, and nothing becomes a new item', async ({ page, request }) => {
+  await apiSignIn(request)
+  const title = 'بند يُحذف من النافذة'
+  await request.post('/api/tasks', { data: { title } })
+  await page.goto('/')
+  await signIn(page)
+  await page.locator('table').getByRole('button', { name: title, exact: true }).click()
+  await page.getByRole('button', { name: 'حذف', exact: true }).click()
+  await page.getByRole('button', { name: 'نعم، احذف' }).click()
+  await expect(page.getByRole('heading', { name: 'مهمة أو فعالية جديدة' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'نعم، احذف' })).toHaveCount(0)
+  await expect(page.locator('#t-title')).toHaveCount(0)
+  expect((await tasksOf(request)).some((t) => t.title === title)).toBe(false)
+})
+
+test('an item deleted on another screen while open is never saved back as a new one', async ({ page, request }) => {
+  await apiSignIn(request)
+  const title = 'بند يُحذف من شاشة أخرى'
+  const made = await (await request.post('/api/tasks', { data: { title } })).json()
+  await page.goto('/')
+  await signIn(page)
+  await page.locator('table').getByRole('button', { name: title, exact: true }).click()
+  await page.locator('#t-title').fill(`${title} معدّل`)
+  expect((await request.delete(`/api/tasks/${made.id}`)).status()).toBe(204)
+  await expect(page.getByText('حُذف هذا البند، فلا يمكن حفظ التغييرات عليه')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'حفظ', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'إغلاق' }).last().click()
+  expect((await tasksOf(request)).some((t) => String(t.title).startsWith(title))).toBe(false)
+})
+
+test('a save sends only what was changed, so an edit made meanwhile on another screen stays', async ({ page, request }) => {
+  await apiSignIn(request)
+  const title = 'بند يعدّله شخصان'
+  const made = await (await request.post('/api/tasks', { data: { title, notes: 'الملاحظة الأولى' } })).json()
+  await page.goto('/')
+  await signIn(page)
+  await page.locator('table').getByRole('button', { name: title, exact: true }).click()
+  // someone else changes the notes while this drawer is open
+  await request.patch(`/api/tasks/${made.id}`, { data: { notes: 'ملاحظة من شاشة أخرى' } })
+  await page.getByLabel('المسؤول', { exact: true }).fill('سلمى')
+  await page.getByRole('button', { name: 'حفظ', exact: true }).click()
+  await expect.poll(async () => (await tasksOf(request)).find((t) => t.id === made.id)!.owner).toBe('سلمى')
+  expect((await tasksOf(request)).find((t) => t.id === made.id)!.notes).toBe('ملاحظة من شاشة أخرى')
+})
+
+test('signing out ends the session on the server, so a copied cookie stops working', async ({ playwright }) => {
+  const a = await playwright.request.newContext({ baseURL: BASE })
+  await apiSignIn(a)
+  const b = await playwright.request.newContext({ baseURL: BASE, storageState: { cookies: (await a.storageState()).cookies, origins: [] } })
+  expect((await (await b.get('/api/state')).json()).user).not.toBeNull()
+  await a.post('/api/logout')
+  expect((await (await b.get('/api/state')).json()).user).toBeNull()
+  expect((await b.patch('/api/tasks/x', { data: { owner: 'x' } })).status()).toBe(401)
+  // a garbled cookie is just a visitor, never an error
+  const c = await playwright.request.newContext({ baseURL: BASE, extraHTTPHeaders: { cookie: 'vp_session=%E0%A4%A' } })
+  const st = await c.get('/api/state')
+  expect(st.status()).toBe(200)
+  expect((await st.json()).user).toBeNull()
+  await Promise.all([a.dispose(), b.dispose(), c.dispose()])
+})
+
+test('a new password for one’s own account keeps this browser signed in and signs the others out', async ({ request, playwright }) => {
+  await apiSignIn(request)
+  const boss = await (await request.post('/api/users', { data: { username: 'boss', name: 'مشرف ثان', role: 'admin', password: 'boss-pass-1' } })).json()
+  const here = await playwright.request.newContext({ baseURL: BASE })
+  const there = await playwright.request.newContext({ baseURL: BASE })
+  await apiSignIn(here, { username: 'boss', password: 'boss-pass-1' })
+  await apiSignIn(there, { username: 'boss', password: 'boss-pass-1' })
+  expect((await here.patch(`/api/users/${boss.id}`, { data: { password: 'boss-pass-2' } })).status()).toBe(200)
+  expect((await here.get('/api/users')).status()).toBe(200)
+  expect((await there.get('/api/users')).status()).toBe(401)
+  // the change log names who made the change
+  const log = await (await request.get('/api/audit?limit=5')).json()
+  expect(log.some((e: { field: string; by: string; entityTitle: string }) => e.field === 'user' && e.entityTitle === 'مشرف ثان' && e.by === 'مشرف ثان')).toBe(true)
+  await Promise.all([here.dispose(), there.dispose()])
+})
+
+test('each account has its own name, and the names the system writes are reserved', async ({ request }) => {
+  await apiSignIn(request)
+  const add = (username: string, name: string) => request.post('/api/users', { data: { username, name, role: 'team', password: 'some-pass-1' } })
+  const reserved = await add('fake.admin', 'المشرف')
+  expect(reserved.status()).toBe(400)
+  expect((await reserved.json()).error).toContain('يستخدمه النظام')
+  expect((await add('twin.one', 'ريم')).status()).toBe(201)
+  expect((await add('twin.two', ' ريم ')).status()).toBe(400)
+  const other = await (await add('twin.three', 'ريما')).json()
+  expect((await request.patch(`/api/users/${other.id}`, { data: { name: 'ريم' } })).status()).toBe(400)
+  expect((await request.patch(`/api/users/${other.id}`, { data: { name: 'ريما' } })).status()).toBe(200)
+})
+
+test('impossible dates are refused, and unknown API paths answer in JSON', async ({ request }) => {
+  await apiSignIn(request)
+  const id = (await tasksOf(request))[0].id
+  const bad = await request.patch(`/api/tasks/${id}`, { data: { end: '2026-02-31' } })
+  expect(bad.status()).toBe(400)
+  expect((await bad.json()).error).toBe('التاريخ: تاريخ غير صالح.')
+  expect((await request.patch(`/api/tasks/${id}`, { data: { start: '2028-02-29' } })).status()).toBe(200)
+  const nope = await request.get('/api/nothing-here')
+  expect(nope.status()).toBe(404)
+  expect(nope.headers()['content-type']).toContain('application/json')
+  const broken = await request.post('/api/login', { headers: { 'content-type': 'application/json' }, data: '{not json' })
+  expect(broken.status()).toBe(400)
+  expect((await broken.json()).error).toBeTruthy()
+})
+
+test('the page is served with security headers', async ({ request }) => {
+  const h = (await request.get('/')).headers()
+  expect(h['content-security-policy']).toContain("default-src 'self'")
+  expect(h['content-security-policy']).toContain("frame-ancestors 'self'")
+  expect(h['x-content-type-options']).toBe('nosniff')
+  expect(h['referrer-policy']).toBe('same-origin')
+})
+
+test('the spreadsheet keeps formula-like text as plain text', async ({ request }) => {
+  await apiSignIn(request)
+  const made = await (await request.post('/api/tasks', { data: { title: 'بند بصيغة', notes: '=HYPERLINK("http://x")' } })).json()
+  const csv = await (await request.get('/api/backup/tasks.csv')).text()
+  expect(csv).toContain(`"'=HYPERLINK(""http://x"")"`)
+  expect(csv).not.toMatch(/(^|,)=HYPERLINK/m)
+  await request.delete(`/api/tasks/${made.id}`)
+})
+
+test('a restore keeps who changed each item last, and refuses a file with a repeated id', async ({ request }) => {
+  await apiSignIn(request)
+  const backup = await (await request.get('/api/backup')).json()
+  const twice = { ...backup, tasks: [...backup.tasks, backup.tasks[0]] }
+  const refused = await request.post('/api/backup/restore', { data: twice })
+  expect(refused.status()).toBe(400)
+  expect((await refused.json()).error).toContain('بالمعرّف نفسه')
+  expect((await request.post('/api/backup/restore', { data: backup })).status()).toBe(200)
+  const after = await tasksOf(request)
+  for (const t of backup.tasks) {
+    const now = after.find((x) => x.id === t.id)!
+    expect(now.updatedBy).toBe(t.updatedBy)
+    expect(now.updatedAt).toBe(t.updatedAt)
+  }
+})
+
+test('account changes are never replayed from the change log', async ({ request }) => {
+  await apiSignIn(request)
+  const u = await (await request.post('/api/users', { data: { username: 'gone.soon', name: 'سيُحذف', role: 'team', password: 'gone-pass-1' } })).json()
+  await request.delete(`/api/users/${u.id}`)
+  const entry = (await (await request.get('/api/audit?limit=10')).json()).find((e: { field: string; action: string; entityId: string }) => e.field === 'user' && e.action === 'delete' && e.entityId === u.id)
+  expect(entry).toBeTruthy()
+  const r = await request.post(`/api/audit/${entry.id}/restore`)
+  expect(r.status()).toBe(400)
+  expect((await (await request.get('/api/users')).json()).some((x: { username: string }) => x.username === 'gone.soon')).toBe(false)
+})
+
+test('wrong passwords lock out that account from that address only', async ({ request }) => {
+  for (let i = 0; i < 10; i++) expect((await request.post('/api/login', { data: { username: 'lock.me', password: 'wrong' } })).status()).toBe(401)
+  expect((await request.post('/api/login', { data: { username: 'lock.me', password: 'wrong' } })).status()).toBe(429)
+  // colleagues on the same address still sign in
+  expect((await request.post('/api/login', { data: ADMIN })).status()).toBe(200)
+})
+
+test('a small nudge of a bubble keeps its values; a real drag changes them', async ({ page, request }) => {
+  await apiSignIn(request)
+  const title = 'فقاعة للسحب'
+  const made = await (await request.post('/api/tasks', { data: { title, priority: 3, urgency: 1, effort: 2 } })).json()
+  await page.goto('/')
+  await signIn(page)
+  const bubble = page.locator(`#matrix svg g[role="button"][aria-label^="${title}:"]`)
+  const drag = async (dx: number, dy: number) => {
+    await bubble.scrollIntoViewIfNeeded()
+    const b = (await bubble.boundingBox())!
+    const [x, y] = [b.x + b.width / 2, b.y + b.height / 2]
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    for (let i = 1; i <= 10; i++) await page.mouse.move(x + (dx * i) / 10, y + (dy * i) / 10)
+    await page.mouse.up()
+  }
+  await drag(6, 4)
+  await page.waitForTimeout(500)
+  let t = (await tasksOf(request)).find((x) => x.id === made.id)!
+  expect([t.priority, t.urgency]).toEqual([3, 1])
+  // urgency grows to the left: a quarter of the plot is about two and a half steps
+  const w = (await page.getByRole('group', { name: 'مصفوفة المهام حسب درجة الأهمية ومستوى الاستعجال' }).boundingBox())!.width
+  await drag(-w * 0.2, 0)
+  await expect.poll(async () => (await tasksOf(request)).find((x) => x.id === made.id)!.urgency as number).toBeGreaterThanOrEqual(3)
+  t = (await tasksOf(request)).find((x) => x.id === made.id)!
+  expect(t.priority).toBe(3)
+  await expect(page.getByText(/^نُقل البند إلى أهمية/)).toBeVisible()
+  await request.delete(`/api/tasks/${made.id}`)
+})
+
+test('an overdue item keeps the status the team chose in its menu, with the overdue badge beside it', async ({ page, request }) => {
+  await apiSignIn(request)
+  const title = 'بند فات تاريخه'
+  const made = await (await request.post('/api/tasks', { data: { title, start: iso(-20), end: iso(-3), status: 'on-track', progress: 30 } })).json()
+  await page.goto('/')
+  await signIn(page)
+  await expect(page.getByLabel(`الحالة — ${title}`, { exact: true })).toHaveValue('on-track')
+  await expect(page.locator('table tr').filter({ hasText: title }).getByText('متأخرة ٣ أيام')).toBeVisible()
+  await page.locator('table').getByRole('button', { name: title, exact: true }).click()
+  await expect(page.locator('#t-status')).toHaveValue('on-track')
+  await expect(page.getByText('فات تاريخ هذا البند، فيظهر «متأخرة»')).toBeVisible()
+  await request.delete(`/api/tasks/${made.id}`)
+})
+
+test('on a phone, the timeline opens as the calendar the first time', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'ar-SA' })
+  const page = await ctx.newPage()
+  await page.goto('/')
+  await expect(page.locator('#timeline').getByRole('tab', { name: 'تقويم' })).toHaveAttribute('aria-selected', 'true')
+  await ctx.close()
 })

@@ -8,6 +8,7 @@ import { SectionHeading } from '@/components/ui/SectionHeading'
 import { api } from '@/lib/api'
 import { BoardProvider, useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
+import { arabicCheck } from '@/lib/forms'
 import { AnimatePresence, motion, EASE } from '@/lib/motion'
 import { Activity } from '@/sections/Activity'
 import { AdminPanel } from '@/sections/AdminPanel'
@@ -46,7 +47,7 @@ function SignIn({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <Dialog id="signin-title" open={open} onClose={onClose} title="تسجيل الدخول">
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <p className="text-sm leading-relaxed text-fg-secondary">اللوحة للعرض لكل من لديه الرابط. سجّل الدخول بحسابك لإضافة البنود وتعديلها. يُنشئ المشرف الحسابات من إعدادات اللوحة.</p>
+        <p className="text-sm leading-relaxed text-fg-secondary">اللوحة للعرض لكل من لديه الرابط. سجّل الدخول بحسابك للتعديل. يُنشئ المشرف الحسابات من إعدادات اللوحة.</p>
         <div>
           <label htmlFor="signin-user" className="field-label">
             اسم المستخدم
@@ -62,6 +63,7 @@ function SignIn({ open, onClose }: { open: boolean; onClose: () => void }) {
             autoCapitalize="none"
             spellCheck={false}
             required
+            {...arabicCheck('اكتب اسم المستخدم.')}
           />
         </div>
         <div>
@@ -76,6 +78,7 @@ function SignIn({ open, onClose }: { open: boolean; onClose: () => void }) {
             onChange={(e) => setPw(e.target.value)}
             autoComplete="current-password"
             required
+            {...arabicCheck('اكتب كلمة المرور.')}
             aria-invalid={!!error}
             aria-describedby={error ? 'admin-pw-err' : undefined}
           />
@@ -96,16 +99,17 @@ function SignIn({ open, onClose }: { open: boolean; onClose: () => void }) {
 function Toasts() {
   const { toasts } = useBoardCtx()
   return (
-    <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-toast flex flex-col items-center gap-2 px-4">
+    <div aria-live="polite" className="pointer-events-none fixed inset-x-0 top-[calc(72px+env(safe-area-inset-top)+0.75rem)] z-toast flex flex-col items-center gap-2 px-4">
       <AnimatePresence>
         {toasts.map((t) => (
           <motion.div
             key={t.id}
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2, ease: EASE }}
-            className={cn('rounded-lg px-4 py-2.5 text-sm font-medium shadow-sm', t.tone === 'error' ? 'bg-danger-700 text-white' : 'bg-blue-900 text-white')}
+            role={t.tone === 'error' ? 'alert' : undefined}
+            className={cn('max-w-md rounded-lg px-4 py-2.5 text-center text-sm font-medium shadow-md', t.tone === 'error' ? 'bg-danger-700 text-white' : 'bg-blue-900 text-white')}
           >
             {t.text}
           </motion.div>
@@ -116,7 +120,7 @@ function Toasts() {
 }
 
 function Board() {
-  const { isAdmin, canEdit, refresh, toast, state, conn } = useBoardCtx()
+  const { isAdmin, canEdit, canEditAll, refresh, toast, state, conn } = useBoardCtx()
   const [signIn, setSignIn] = useState(false)
   const signOut = async () => {
     await api.logout()
@@ -142,7 +146,7 @@ function Board() {
           <Timeline />
         </Section>
         <Section id="register" spacing="none" className="py-8" labelledBy="register-title">
-          <SectionHeading id="register-title" title="المهام والفعاليات" note={canEdit ? 'عدّل أي قيمة مباشرة في الجدول' : 'للعرض فقط · سجّل الدخول للتعديل'} />
+          <SectionHeading id="register-title" title="المهام والفعاليات" note={canEditAll ? 'عدّل أي قيمة مباشرة في الجدول' : canEdit ? 'حساب الفريق: تحديث حقول الفريق' : 'للعرض فقط · سجّل الدخول للتعديل'} />
           <Register />
         </Section>
         {isAdmin && (

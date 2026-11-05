@@ -10,16 +10,18 @@
 
 الصلاحيات:
 
-| | الزائر (من لديه الرابط) | حساب «تعديل البنود» | حساب «مشرف» |
-|---|---|---|---|
-| عرض اللوحة والتقويم وتصدير PDF | ✓ | ✓ | ✓ |
-| إضافة البنود وتعديلها وحذفها والسحب (الفقاعات، الترتيب، التقويم) | | ✓ | ✓ |
-| إدارة الحسابات وقائمة المستويات | | | ✓ |
-| عرض سجل التعديلات واسترجاع قيمة سابقة أو عنصر محذوف | | | ✓ |
-| اعتماد قيم نائب الرئيس المقترحة كما هي («تأكيد القيم») | | | ✓ |
-| تنزيل نسخة احتياطية والاسترجاع منها | | | ✓ |
+| | الزائر (من لديه الرابط) | «الفريق» | «نائب الرئيس» | «مشرف» |
+|---|---|---|---|---|
+| عرض اللوحة والتقويم وتصدير PDF | ✓ | ✓ | ✓ | ✓ |
+| تحديث حقول الفريق: الجهد ونسبة الإنجاز والحالة وجاهز للإطلاق وتاريخ البدء والمسؤول | | ✓ | ✓ | ✓ |
+| تعديل حقول نائب الرئيس (النوع والمستوى والأهمية والاستعجال والتاريخ والملاحظات والعنوان) | | | ✓ | ✓ |
+| إضافة البنود وحذفها والسحب (الفقاعات، الترتيب، التقويم) | | | ✓ | ✓ |
+| اعتماد قيم نائب الرئيس المقترحة كما هي («تأكيد القيم») | | | ✓ | ✓ |
+| إدارة الحسابات وقائمة المستويات | | | | ✓ |
+| عرض سجل التعديلات واسترجاع قيمة سابقة أو عنصر محذوف | | | | ✓ |
+| تنزيل نسخة احتياطية والاسترجاع منها | | | | ✓ |
 
-الرابط للعرض فقط لكل من لا يسجّل الدخول. يُنشئ المشرف حسابًا شخصيًا لكل من يعدّل (نائب الرئيس، أعضاء الفريق) من «إعدادات اللوحة ← المستخدمون»: اسم يظهر في السجل، واسم مستخدم، وكلمة مرور (٨ أحرف على الأقل، تُحفظ مشفّرة)، وصلاحية. تغيير كلمة المرور أو إيقاف الحساب ينهي جلساته فورًا. الحساب المدمج `admin` بكلمة المرور المحفوظة في `ADMIN_PASSWORD` يبقى دائمًا حتى لا تُغلق اللوحة على أحد. عشر محاولات دخول خاطئة من العنوان نفسه توقف الدخول ربع ساعة.
+الرابط للعرض فقط لكل من لا يسجّل الدخول. يُنشئ المشرف حسابًا شخصيًا لكل من يعدّل (نائب الرئيس، أعضاء الفريق) من «إعدادات اللوحة ← المستخدمون»: اسم يظهر في السجل، واسم مستخدم، وكلمة مرور (٨ أحرف على الأقل، تُحفظ مشفّرة)، وصلاحية من ثلاث: «نائب الرئيس» أو «الفريق» أو «مشرف». يمنع الخادم حساب الفريق من تغيير غير حقوله. تغيير كلمة المرور أو إيقاف الحساب ينهي جلساته فورًا. الحساب المدمج `admin` بكلمة المرور المحفوظة في `ADMIN_PASSWORD` يبقى دائمًا حتى لا تُغلق اللوحة على أحد. عشر محاولات دخول خاطئة من العنوان نفسه توقف الدخول ربع ساعة.
 
 The design language (tokens, Neo Sans W23, logos, pattern, Button / Card / FilterChips / Tabs / Sheet) is ported from the NWC IT Strategy booklet site (`amermalik5-gif/it-strategy`).
 
@@ -80,15 +82,16 @@ Health check: `GET /healthz`.
 
 ## API
 
-All routes are under `/api`. Writes need a signed-in account (an httpOnly signed `vp_session` cookie, 30 days); the change log records that account's name.
+All routes are under `/api`. Writes need a signed-in account (an httpOnly `vp_session` cookie holding a random session id, 30 days; the server keeps only its hash in the `sessions` table); the change log records that account's name. Unknown `/api` paths answer 404 in JSON.
 
 | Method | Path | Who |
 |---|---|---|
 | GET | `/state`, `/stream` | everyone (`state.user` is the signed-in account, or null) |
-| POST, PATCH, DELETE | `/tasks`, `/tasks/:id`, `/tasks/:id/move`, `/events`, `/events/:id` | any account (rate limited) |
+| PATCH | `/tasks/:id` | any account; a team account only effort, progress, status, ready, start and owner (rate limited) |
+| POST, DELETE | `/tasks`, `/tasks/:id`, `/tasks/:id/move`; POST `/events`, PATCH `/events/:id` | the VP and the admin (rate limited) |
 | GET | `/audit?limit=50`, `/backup`, `/backup/tasks.csv`, `/users` | admin |
 | POST, PATCH, DELETE | `/users`, `/users/:id` | admin |
 | PUT | `/settings` | admin |
 | DELETE | `/events/:id` | admin |
 | POST | `/audit/:id/restore`, `/backup/restore` | admin |
-| POST | `/login` `{username, password}`, `/logout` | everyone (10 failed attempts lock an address out for 15 minutes) |
+| POST | `/login` `{username, password}`, `/logout` | everyone (10 failed attempts for one account from one address, or 30 from one address, lock it out for 15 minutes; signing out ends the session on the server) |

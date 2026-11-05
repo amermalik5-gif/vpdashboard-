@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useBoard, type Conn } from './api'
-import type { AuditEntry, BoardState, Option, Task } from './types'
+import { editsAll, type AuditEntry, type BoardState, type Option, type Task } from './types'
 
 interface Toast {
   id: number
@@ -14,8 +14,10 @@ interface BoardApi {
   conn: Conn
   /** the signed-in account; null for a visitor */
   user: BoardState['user']
-  /** signed in: may add, edit, delete and drag (visitors only view) */
+  /** signed in: may update at least the team's fields (visitors only view) */
   canEdit: boolean
+  /** the VP or the admin: every field, adding, deleting, dragging and confirming drafts */
+  canEditAll: boolean
   isAdmin: boolean
   refresh: () => void
   labelName: (id: string) => string
@@ -24,7 +26,7 @@ interface BoardApi {
   openTask: (id: string | null) => void
   editing: { open: boolean; id: string | null }
   closeTask: () => void
-  toast: (text: string, tone?: Toast['tone']) => void
+  toast: (text: string, tone?: Toast['tone'], ms?: number) => void
   toasts: Toast[]
   /** Runs a save: shows the server's message on failure, refreshes on success. */
   run: <T>(p: () => Promise<T>, done?: string) => Promise<T | undefined>
@@ -49,10 +51,10 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   const [readyOnly, setReadyOnly] = useState(false)
   const seq = useRef(0)
 
-  const toast = useCallback((text: string, tone: Toast['tone'] = 'ok') => {
+  const toast = useCallback((text: string, tone: Toast['tone'] = 'ok', ms = 3200) => {
     const id = ++seq.current
-    setToasts((t) => [...t, { id, text, tone }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200)
+    setToasts((t) => [...t.filter((x) => x.text !== text), { id, text, tone }])
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), ms)
   }, [])
 
   const run = useCallback(
@@ -84,6 +86,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       conn,
       user: state?.user ?? null,
       canEdit: !!state?.user,
+      canEditAll: editsAll(state?.user?.role),
       isAdmin: state?.user?.role === 'admin',
       refresh,
       labels,

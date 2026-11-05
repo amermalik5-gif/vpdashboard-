@@ -5,8 +5,9 @@ import { Card } from '@/components/ui/Card'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
-import { fmtTime, toArabicDigits } from '@/lib/format'
-import { ROLES, type Option, type Role, type Settings, type UserInfo } from '@/lib/types'
+import { arabicCheck } from '@/lib/forms'
+import { countItems, fmtDate, fmtTime } from '@/lib/format'
+import { ROLE_NAMES, ROLES, type Option, type Role, type Settings, type UserInfo } from '@/lib/types'
 
 const slug = (name: string, taken: Option[]) => {
   let base = name
@@ -65,7 +66,7 @@ function OptionList({ title, note, items, onChange }: { title: string; note: str
   )
 }
 
-const blankUser = { name: '', username: '', password: '', role: 'editor' as Role }
+const blankUser = { name: '', username: '', password: '', role: 'team' as Role }
 
 /**
  * Admin-only: the personal accounts that may edit. Anyone with the link can view; the built-in
@@ -103,7 +104,7 @@ function Users() {
         المستخدمون
       </h4>
       <p className="mt-1 max-w-prose text-sm text-fg-secondary">
-        كل من لديه الرابط يرى اللوحة فقط. للتعديل يحتاج الشخص حسابًا هنا، ويظهر اسمه في سجل التعديلات. صلاحية «مشرف» تدير أيضًا الحسابات والإعدادات والنسخ الاحتياطي. الحساب المدمج «admin» يبقى دائمًا.
+        كل من لديه الرابط يرى اللوحة فقط. للتعديل يحتاج الشخص حسابًا هنا، ويظهر اسمه في سجل التعديلات. «نائب الرئيس» يعدّل كل شيء في البنود ويضيف ويحذف ويسحب، و«الفريق» يحدّث حقول الفريق فقط (الجهد والإنجاز والحالة وجاهز للإطلاق وتاريخ البدء والمسؤول)، و«مشرف» يدير أيضًا الحسابات والإعدادات والنسخ الاحتياطي. الحساب المدمج «admin» يبقى دائمًا.
       </p>
 
       <div className="mt-4 overflow-x-auto">
@@ -130,7 +131,10 @@ function Users() {
                     aria-label={`صلاحية ${u.name}`}
                     className="field h-9 py-0"
                     value={u.role}
-                    onChange={(e) => void act(() => api.updateUser(u.id, { role: e.target.value as Role }), 'تغيّرت الصلاحية')}
+                    onChange={(e) => {
+                      const role = e.target.value as Role
+                      void act(() => api.updateUser(u.id, { role }), `تغيّرت صلاحية «${u.name}» إلى «${ROLE_NAMES[role]}»`)
+                    }}
                   >
                     {(Object.entries(ROLES) as [Role, string][]).map(([k, name]) => (
                       <option key={k} value={k}>
@@ -159,6 +163,7 @@ function Users() {
                           className="field h-9 w-40"
                           minLength={8}
                           required
+                          {...arabicCheck('اكتب كلمة المرور الجديدة.', 'كلمة المرور ٨ أحرف على الأقل.')}
                           autoComplete="new-password"
                           value={reset.password}
                           onChange={(e) => setReset({ id: u.id, password: e.target.value })}
@@ -221,7 +226,7 @@ function Users() {
           <label htmlFor="u-name" className="field-label">
             الاسم (يظهر في السجل)
           </label>
-          <input id="u-name" className="field" required maxLength={60} placeholder="مثال: نائب الرئيس" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <input id="u-name" className="field" required maxLength={60} {...arabicCheck('اكتب الاسم الذي يظهر في سجل التعديلات.', 'اكتب الاسم الذي يظهر في سجل التعديلات.')} placeholder="مثال: نائب الرئيس" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </div>
         <div>
           <label htmlFor="u-username" className="field-label">
@@ -234,6 +239,7 @@ function Users() {
             required
             pattern="[A-Za-z0-9._\-]{2,32}"
             title="من حرفين إلى ٣٢ حرفًا لاتينيًا أو رقمًا"
+            {...arabicCheck('اكتب اسم المستخدم.', 'اسم المستخدم من حرفين إلى ٣٢ حرفًا لاتينيًا أو رقمًا، ويمكن معها . _ -')}
             autoCapitalize="none"
             spellCheck={false}
             autoComplete="off"
@@ -246,7 +252,7 @@ function Users() {
           <label htmlFor="u-password" className="field-label">
             كلمة المرور
           </label>
-          <input id="u-password" type="password" className="field" required minLength={8} autoComplete="new-password" placeholder="٨ أحرف على الأقل" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <input id="u-password" type="password" className="field" required minLength={8} {...arabicCheck('اكتب كلمة المرور.', 'كلمة المرور ٨ أحرف على الأقل.')} autoComplete="new-password" placeholder="٨ أحرف على الأقل" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
         </div>
         <div>
           <label htmlFor="u-role" className="field-label">
@@ -302,7 +308,7 @@ export function AdminPanel() {
     })
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
       <Card padding="none" className="p-4 md:p-6">
         <div className="max-w-xl">
           <OptionList
@@ -384,7 +390,7 @@ function Backup() {
             النسخ الاحتياطي
           </h4>
           <p className="mt-1 text-sm text-fg-secondary">
-            نزّل نسخة من كل ما في اللوحة: {toArabicDigits(state?.tasks.length ?? 0)} بندًا (مهام وفعاليات)، والإعدادات، وسجل التعديلات كاملًا. يُنصح بتنزيلها قبل أي تعديل كبير وفي نهاية كل شهر.
+            نزّل نسخة من كل ما في اللوحة: {countItems(state?.tasks.length ?? 0)} (مهام وفعاليات)، والإعدادات، وسجل التعديلات كاملًا. يُنصح بتنزيلها قبل أي تعديل كبير وفي نهاية كل شهر.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -406,8 +412,8 @@ function Backup() {
       {pending && (
         <div className="mt-4 flex flex-col gap-3 rounded-lg border border-warning-100 bg-warning-50 p-4 md:flex-row md:items-center md:justify-between">
           <p className="text-sm text-warning-700">
-            سيستبدل هذا كل المهام والفعاليات والإعدادات الحالية بما في الملف: {toArabicDigits(pending.tasks.length + pending.events.length)} بندًا
-            {pending.exportedAt ? ` (نسخة ${new Date(pending.exportedAt).toLocaleDateString('ar-SA-u-ca-gregory')})` : ''}. يحتفظ الخادم بنسخة من الوضع الحالي قبل الاسترجاع.
+            سيستبدل هذا كل المهام والفعاليات والإعدادات الحالية بما في الملف: {countItems(pending.tasks.length + pending.events.length)}
+            {pending.exportedAt ? ` (نسخة ${fmtDate(new Date(pending.exportedAt))})` : ''}. يحتفظ الخادم بنسخة من الوضع الحالي قبل الاسترجاع.
           </p>
           <div className="flex shrink-0 gap-2">
             <Button className="bg-danger-700 hover:bg-danger-700" onClick={restore}>
