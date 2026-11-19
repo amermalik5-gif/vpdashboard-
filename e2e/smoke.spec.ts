@@ -94,11 +94,11 @@ test('the admin creates the VP’s account; the VP signs in, edits, and the log 
   await expect(vp.getByRole('dialog')).toHaveCount(0)
   // the VP is no admin: no settings
   await expect(vp.getByRole('heading', { name: 'إعدادات اللوحة' })).toHaveCount(0)
-  await vp.getByLabel('ملاحظات — حفل نهاية السنة', { exact: true }).fill('يحدد المكان لاحقًا')
-  await vp.getByLabel('ملاحظات — حفل نهاية السنة', { exact: true }).press('Enter')
+  await vp.getByLabel('ملاحظات الفريق — حفل نهاية السنة', { exact: true }).fill('يحدد المكان لاحقًا')
+  await vp.getByLabel('ملاحظات الفريق — حفل نهاية السنة', { exact: true }).press('Enter')
 
   await page.reload()
-  await expect(page.locator('#activity')).toContainText('نائب الرئيس غيّر الملاحظات في البند «حفل نهاية السنة»')
+  await expect(page.locator('#activity')).toContainText('نائب الرئيس غيّر ملاحظات الفريق في البند «حفل نهاية السنة»')
   await expect(page.locator('#activity')).toContainText('المشرف أنشأ حساب «نائب الرئيس»')
 })
 
@@ -137,6 +137,7 @@ test('a VP-level account adds and edits an item; the change log names them', asy
   await expect(kind.locator('option', { hasText: 'إعلان داخلي' })).toHaveCount(1)
   await kind.selectOption('news')
   await expect(page.getByLabel('الفئة', { exact: true })).toHaveCount(0)
+  await page.getByLabel('المسؤول', { exact: true }).fill('منصور')
   await page.getByRole('button', { name: 'إضافة', exact: true }).click()
   await expect(page.locator('table').getByText('مهمة اختبار')).toBeVisible()
 
@@ -165,7 +166,8 @@ test('a team account updates only the team\u2019s fields', async ({ page, reques
   await expect(page.getByLabel(`الجهد — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SELECT')
   await expect(page.getByLabel(`الحالة — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SELECT')
   await expect(page.getByLabel(`درجة الأهمية — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SPAN')
-  await expect(page.getByLabel(`ملاحظات — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'SPAN')
+  // the team notes are the team's own column; the VP's directions aren't in the table
+  await expect(page.getByLabel(`ملاحظات الفريق — ${name}`, { exact: true })).toHaveJSProperty('tagName', 'INPUT')
   await expect(page.getByLabel(`جاهز للإطلاق — ${name}`, { exact: true })).toBeEnabled()
   // no adding, deleting or dragging
   await expect(page.getByRole('button', { name: 'إضافة مهمة أو فعالية' })).toHaveCount(0)
@@ -314,9 +316,9 @@ test('two quick saves in a row both reach another open screen', async ({ browser
   await b.reload()
   await apiSignIn(a.request)
   const t = (await tasksOf(a.request))[0]
-  await a.request.patch(`/api/tasks/${t.id}`, { data: { notes: 'أولى' } })
-  await a.request.patch(`/api/tasks/${t.id}`, { data: { notes: 'الثانية' } })
-  await expect(b.getByLabel(`ملاحظات — ${t.title}`)).toHaveValue('الثانية', { timeout: 10_000 })
+  await a.request.patch(`/api/tasks/${t.id}`, { data: { teamNotes: 'أولى' } })
+  await a.request.patch(`/api/tasks/${t.id}`, { data: { teamNotes: 'الثانية' } })
+  await expect(b.getByLabel(`ملاحظات الفريق — ${t.title}`)).toHaveValue('الثانية', { timeout: 10_000 })
 })
 
 test('the VP edits importance, urgency, date and notes straight from the table', async ({ page, request }) => {
@@ -327,12 +329,12 @@ test('the VP edits importance, urgency, date and notes straight from the table',
   await page.getByLabel(`مستوى الاستعجال — ${name}`).selectOption('9')
   await page.getByLabel(`النوع — ${name}`).selectOption('launch')
   await page.getByLabel(`التاريخ — ${name}`).fill('2026-12-01')
-  await page.getByLabel(`ملاحظات — ${name}`).fill('بعد اعتماد السيناريو')
-  await page.getByLabel(`ملاحظات — ${name}`).press('Enter')
+  await page.getByLabel(`ملاحظات الفريق — ${name}`).fill('بعد اعتماد السيناريو')
+  await page.getByLabel(`ملاحظات الفريق — ${name}`).press('Enter')
   await expect
     .poll(async () => {
       const t = (await tasksOf(request)).find((x) => x.title === name)!
-      return [t.priority, t.urgency, t.kind, t.end, t.notes, t.updatedBy].join('|')
+      return [t.priority, t.urgency, t.kind, t.end, t.teamNotes, t.updatedBy].join('|')
     })
     .toBe('3|9|launch|2026-12-01|بعد اعتماد السيناريو|نائب الرئيس')
   // undated items are listed under the timeline instead of being guessed
@@ -488,6 +490,7 @@ test('the team marks an item ready for launch: a star by it, and a tile that lis
   const box = page.getByRole('checkbox', { name: 'جاهز للإطلاق', exact: true })
   await expect(box).toBeChecked()
   await box.uncheck()
+  await page.getByLabel('المسؤول', { exact: true }).fill('نور')
   await page.getByRole('button', { name: 'حفظ', exact: true }).click()
   await expect.poll(ready).toBe(false)
   await expect(tile.locator('dd')).toHaveText('٠')
@@ -733,4 +736,135 @@ test('on a phone, the timeline opens as the calendar the first time', async ({ b
   await page.goto('/')
   await expect(page.locator('#timeline').getByRole('tab', { name: 'تقويم' })).toHaveAttribute('aria-selected', 'true')
   await ctx.close()
+})
+
+/* ---------- the 18 Nov 2026 meeting: directions and team notes, outputs, owners, sponsors, parts ---------- */
+
+test('a team account updates the team notes, links, sponsor and actual launch date, but not the VP’s fields', async ({ request, playwright }) => {
+  await apiSignIn(request)
+  const made = await (await request.post('/api/tasks', { data: { title: 'بند لحقول الفريق', owner: 'نور' } })).json()
+  const team = await playwright.request.newContext({ baseURL: BASE })
+  await apiSignIn(team, { username: 'noor', password: 'noor-pass-1' })
+  const patch = (data: object) => team.patch(`/api/tasks/${made.id}`, { data })
+  expect((await patch({ teamNotes: 'بانتظار موافقة المكتب', sponsor: 'عمار', actualEnd: '2026-11-18', links: [{ name: 'الفيديو', url: 'https://drive.google.com/x' }] })).status()).toBe(200)
+  expect((await patch({ outputs: ['فيديو'] })).status()).toBe(403)
+  expect((await patch({ notes: 'توجيه' })).status()).toBe(403)
+  expect((await patch({ parentId: (await tasksOf(request))[0].id })).status()).toBe(403)
+  // links must be web addresses
+  const bad = await request.patch(`/api/tasks/${made.id}`, { data: { links: [{ name: 'x', url: 'javascript:alert(1)' }] } })
+  expect(bad.status()).toBe(400)
+  const t = (await tasksOf(request)).find((x) => x.id === made.id)!
+  expect([t.teamNotes, t.sponsor, t.actualEnd, (t.links as { url: string }[])[0].url].join('|')).toBe('بانتظار موافقة المكتب|عمار|2026-11-18|https://drive.google.com/x')
+  await team.dispose()
+  await request.delete(`/api/tasks/${made.id}`)
+})
+
+test('the form asks for an owner, and for a reason when an item is red or amber', async ({ page, request }) => {
+  await apiSignIn(request)
+  const title = 'بند متأخر قليلًا بلا سبب'
+  const made = await (await request.post('/api/tasks', { data: { title, status: 'at-risk' } })).json()
+  await page.goto('/')
+  await signIn(page)
+  // the table says what is missing
+  const row = page.locator('table tr').filter({ hasText: title })
+  await expect(row.getByText('بلا مسؤول')).toBeVisible()
+  await expect(page.getByLabel(`ملاحظات الفريق — ${title}`, { exact: true })).toHaveAttribute('placeholder', 'أضف السبب')
+  // the form won't save without them
+  await page.locator('table').getByRole('button', { name: title, exact: true }).click()
+  await expect(page.getByText('هذا البند بالأحمر أو البرتقالي: اكتب السبب هنا قبل الحفظ.')).toBeVisible()
+  await page.getByRole('button', { name: 'حفظ', exact: true }).click()
+  await expect(page.locator('#t-owner')).toHaveJSProperty('validationMessage', 'اكتب المسؤول عن البند: من يتابعه نائب الرئيس معه.')
+  await expect(page.locator('#t-team-notes')).toHaveJSProperty('validationMessage', 'البند متأخر: اكتب السبب في ملاحظات الفريق قبل الحفظ.')
+  await page.locator('#t-owner').fill('أريج')
+  await page.locator('#t-team-notes').fill('بانتظار اعتماد التصميم من المكتب')
+  await page.getByRole('button', { name: 'حفظ', exact: true }).click()
+  await expect.poll(async () => (await tasksOf(request)).find((t) => t.id === made.id)!.teamNotes).toBe('بانتظار اعتماد التصميم من المكتب')
+  await expect(row.getByText('بلا مسؤول')).toHaveCount(0)
+  await request.delete(`/api/tasks/${made.id}`)
+})
+
+test('«متوقفة» never turns red, and an actual launch date ends «متأخرة»', async ({ page, request }) => {
+  await apiSignIn(request)
+  const held = await (await request.post('/api/tasks', { data: { title: 'بند متوقف', owner: 'نور', end: iso(-5), status: 'on-hold' } })).json()
+  const late = await (await request.post('/api/tasks', { data: { title: 'بند فات تاريخه وأُطلق', owner: 'نور', end: iso(-5), status: 'on-track' } })).json()
+  await page.goto('/')
+  const heldRow = page.locator('table tr').filter({ hasText: 'بند متوقف' })
+  const lateRow = page.locator('table tr').filter({ hasText: 'بند فات تاريخه وأُطلق' })
+  await expect(heldRow.locator('[title="متوقفة"]')).toHaveCount(1)
+  await expect(heldRow.getByText(/^متأخرة /)).toHaveCount(0)
+  await expect(lateRow.getByText(/^متأخرة /)).toBeVisible()
+  await request.patch(`/api/tasks/${late.id}`, { data: { actualEnd: iso(-1) } })
+  await expect(lateRow.getByText(/^متأخرة /)).toHaveCount(0)
+  await expect(lateRow.getByText(/^أُطلق في/)).toBeVisible()
+  await request.delete(`/api/tasks/${held.id}`)
+  await request.delete(`/api/tasks/${late.id}`)
+})
+
+test('parts of a bigger launch share its bubble in the matrix and sit under it in the table', async ({ page, request }) => {
+  await apiSignIn(request)
+  const main = await (await request.post('/api/tasks', { data: { title: 'إطلاق رئيسي للتجربة', owner: 'عامر', priority: 6, urgency: 4 } })).json()
+  const p1 = await (await request.post('/api/tasks', { data: { title: 'جزء أول للتجربة', owner: 'عامر', priority: 2, urgency: 2, parentId: main.id } })).json()
+  const p2 = await (await request.post('/api/tasks', { data: { title: 'جزء ثان للتجربة', owner: 'عامر', priority: 3, urgency: 1 } })).json()
+  expect((await request.patch(`/api/tasks/${p2.id}`, { data: { parentId: main.id } })).status()).toBe(200)
+  // one level only
+  expect((await request.patch(`/api/tasks/${main.id}`, { data: { parentId: p1.id } })).status()).toBe(400)
+  await page.goto('/')
+  const svg = page.getByRole('group', { name: 'مصفوفة المهام حسب درجة الأهمية ومستوى الاستعجال' })
+  await expect(svg.locator('g[role="button"][aria-label^="جزء أول للتجربة:"]')).toHaveCount(0)
+  await expect(svg.locator('g[role="button"][aria-label^="إطلاق رئيسي للتجربة:"]')).toHaveAttribute('aria-label', /يضم بنودًا فرعية: 2/)
+  await expect(page.getByRole('list', { name: 'البنود الفرعية لـ «إطلاق رئيسي للتجربة»' }).getByRole('button')).toHaveCount(2)
+  // the table: the parts follow their main item, marked as parts
+  const titles = await page.locator('table tbody tr td:nth-child(2) button:first-of-type').allTextContents()
+  const at = titles.findIndex((x) => x.includes('إطلاق رئيسي للتجربة'))
+  expect(titles.slice(at + 1, at + 3).map((x) => x.trim())).toEqual(['جزء أول للتجربة', 'جزء ثان للتجربة'])
+  await expect(page.locator('table tr').filter({ hasText: 'جزء أول للتجربة' }).getByLabel('بند فرعي')).toHaveCount(1)
+  // deleting the main item keeps its parts, as items of their own
+  await request.delete(`/api/tasks/${main.id}`)
+  expect((await tasksOf(request)).filter((t) => t.id === p1.id || t.id === p2.id).map((t) => t.parentId)).toEqual(['', ''])
+  await request.delete(`/api/tasks/${p1.id}`)
+  await request.delete(`/api/tasks/${p2.id}`)
+})
+
+test('the VP’s directions, the final output and the team notes keep a history', async ({ page, request }) => {
+  await apiSignIn(request)
+  const made = await (await request.post('/api/tasks', { data: { title: 'بند بسجل ملاحظات', owner: 'منصور' } })).json()
+  await request.patch(`/api/tasks/${made.id}`, { data: { notes: 'التوجيه الأول', outputs: ['فيديو', 'خبر'] } })
+  await request.patch(`/api/tasks/${made.id}`, { data: { teamNotes: 'التحديث الأول' } })
+  await request.patch(`/api/tasks/${made.id}`, { data: { teamNotes: 'التحديث الثاني' } })
+  // visitors see the current state only
+  const visitor = await page.request.get(`/api/tasks/${made.id}/history`)
+  expect(visitor.status()).toBe(401)
+  await page.goto('/')
+  await signIn(page)
+  await page.locator('table').getByRole('button', { name: 'بند بسجل ملاحظات', exact: true }).click()
+  await expect(page.getByRole('group', { name: 'المخرج النهائي المطلوب' }).getByRole('checkbox', { name: 'فيديو' })).toBeChecked()
+  await expect(page.getByRole('group', { name: 'المخرج النهائي المطلوب' }).getByRole('checkbox', { name: 'مقال' })).not.toBeChecked()
+  await expect(page.getByLabel('توجيهات نائب الرئيس')).toHaveValue('التوجيه الأول')
+  await page.getByText(/^سجل الملاحظات والتوجيهات/).click()
+  const log = page.locator('details')
+  await expect(log).toContainText('التحديث الأول')
+  await expect(log).toContainText('التحديث الثاني')
+  await expect(log).toContainText('توجيه نائب الرئيس، المشرف')
+  await request.delete(`/api/tasks/${made.id}`)
+})
+
+test('the table filters by sponsor, and output links open from the table', async ({ page, request }) => {
+  await apiSignIn(request)
+  const a = await (await request.post('/api/tasks', { data: { title: 'بند لراعٍ أول', owner: 'عامر', sponsor: 'راعٍ للتجربة' } })).json()
+  const b = await (await request.post('/api/tasks', { data: { title: 'بند لراعٍ آخر', owner: 'عامر', sponsor: 'راعٍ آخر للتجربة' } })).json()
+  await request.patch(`/api/tasks/${a.id}`, { data: { links: [{ name: 'العرض', url: 'https://example.com/deck' }] } })
+  await page.goto('/')
+  await page.getByLabel('تصفية حسب الراعي (المدير العام)', { exact: true }).selectOption('راعٍ للتجربة')
+  await expect(page.locator('table tbody tr')).toHaveCount(1)
+  const link = page.locator('table tbody tr').getByRole('link', { name: 'العرض' })
+  await expect(link).toHaveAttribute('href', 'https://example.com/deck')
+  await expect(link).toHaveAttribute('target', '_blank')
+  await page.getByLabel('تصفية حسب الراعي (المدير العام)', { exact: true }).selectOption('')
+  await expect.poll(async () => page.locator('table tbody tr').count()).toBeGreaterThan(2)
+  // the admin manages the output choices
+  expect((await page.request.put('/api/settings', { data: { outputs: ['فيديو'] } })).status()).toBe(401)
+  const st = await (await request.put('/api/settings', { data: { outputs: ['فيديو', 'عرض تقديمي', 'تقرير'] } })).json()
+  expect(st.outputs).toEqual(['فيديو', 'عرض تقديمي', 'تقرير'])
+  await request.delete(`/api/tasks/${a.id}`)
+  await request.delete(`/api/tasks/${b.id}`)
 })

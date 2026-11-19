@@ -32,6 +32,8 @@ export const api = {
   /** Put the item at number `to` in the list; the others are renumbered. */
   moveTask: (id: string, to: number) => call<{ from: number; to: number }>('POST', `/tasks/${id}/move`, { to }),
   deleteTask: (id: string) => call<void>('DELETE', `/tasks/${id}`),
+  /** the earlier notes and directions of one item, newest first (signed-in accounts) */
+  history: (id: string) => call<{ field: 'notes' | 'teamNotes'; text: string; by: string; at: number }[]>('GET', `/tasks/${id}/history`),
   addEvent: (e: Partial<EventItem>) => call<EventItem>('POST', '/events', e),
   updateEvent: (id: string, patch: Partial<EventItem>) => call<EventItem>('PATCH', `/events/${id}`, patch),
   deleteEvent: (id: string) => call<void>('DELETE', `/events/${id}`),

@@ -66,6 +66,48 @@ function OptionList({ title, note, items, onChange }: { title: string; note: str
   )
 }
 
+/** A plain list of names (the choices of «المخرج النهائي المطلوب»). */
+function StringList({ title, note, items, onChange }: { title: string; note: string; items: string[]; onChange: (v: string[]) => void }) {
+  const [name, setName] = useState('')
+  return (
+    <div>
+      <h4 className="font-medium">{title}</h4>
+      <p className="mb-3 text-xs text-fg-tertiary">{note}</p>
+      <ul className="flex flex-col gap-2">
+        {items.map((o, i) => (
+          <li key={i} className="flex items-center gap-2">
+            <input className="field h-9" aria-label={`${title}: ${o}`} value={o} maxLength={80} onChange={(e) => onChange(items.map((x, j) => (j === i ? e.target.value : x)))} />
+            <button
+              type="button"
+              aria-label={`إزالة ${o}`}
+              disabled={items.length <= 1}
+              onClick={() => onChange(items.filter((_, j) => j !== i))}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-fg-tertiary hover:bg-danger-50 hover:text-danger-700 disabled:opacity-30"
+            >
+              <X size={16} aria-hidden />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <form
+        className="mt-2 flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const v = name.trim()
+          if (!v || items.includes(v)) return
+          onChange([...items, v])
+          setName('')
+        }}
+      >
+        <input className="field h-9" placeholder="عنصر جديد" aria-label={`إضافة إلى ${title}`} value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
+        <Button type="submit" size="sm" variant="outline" icon={<Plus size={16} aria-hidden />}>
+          إضافة
+        </Button>
+      </form>
+    </div>
+  )
+}
+
 const blankUser = { name: '', username: '', password: '', role: 'team' as Role }
 
 /**
@@ -301,6 +343,7 @@ export function AdminPanel() {
       () =>
         api.saveSettings({
           labels: s.labels.filter((l) => l.name.trim()),
+          outputs: [...new Set(s.outputs.map((o) => o.trim()).filter(Boolean))],
         }),
       'حُفظت الإعدادات',
     ).then((r) => {
@@ -310,12 +353,18 @@ export function AdminPanel() {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
       <Card padding="none" className="p-4 md:p-6">
-        <div className="max-w-xl">
+        <div className="grid gap-8 md:grid-cols-2">
           <OptionList
             title="المستويات"
             note="تظهر في عمود المستوى وفي تصفية المصفوفة. إزالة مستوى تنقل بنوده إلى «بدون مستوى»."
             items={s.labels}
             onChange={(labels) => setS({ ...s, labels })}
+          />
+          <StringList
+            title="المخرج النهائي المطلوب"
+            note="الخيارات التي يختار منها نائب الرئيس ما ينتظره من الفريق في كل بند."
+            items={s.outputs}
+            onChange={(outputs) => setS({ ...s, outputs })}
           />
         </div>
         <div className="mt-6 flex items-center gap-3 border-t border-line-subtle pt-4">

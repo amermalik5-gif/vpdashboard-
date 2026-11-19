@@ -163,7 +163,7 @@ export function requireVP(req: Request, res: Response, next: NextFunction) {
   if (!sameOrigin(req, res)) return
   const u = currentUser(req)
   if (!u) return res.status(401).json({ error: 'اللوحة للعرض فقط. سجّل الدخول لتتمكن من التعديل.' })
-  if (!editsAll(u.role)) return res.status(403).json({ error: 'حساب الفريق يحدّث حقول الفريق فقط: الجهد ونسبة الإنجاز والحالة وجاهز للإطلاق وتاريخ البدء والمسؤول.' })
+  if (!editsAll(u.role)) return res.status(403).json({ error: 'حساب الفريق يحدّث حقول الفريق فقط: الجهد ونسبة الإنجاز والحالة وجاهز للإطلاق وملاحظات الفريق والمسؤول والراعي وتاريخ البدء وروابط المخرجات وتاريخ الإطلاق الفعلي.' })
   next()
 }
 

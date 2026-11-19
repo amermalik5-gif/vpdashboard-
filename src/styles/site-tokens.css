@@ -7,6 +7,7 @@
   --status-at-risk: var(--warning-500);
   --status-late: var(--danger-500);
   --status-done: var(--success-700);
+  --status-on-hold: var(--tertiary-700);
   /* calendar colours: the CEO's items red, events green, everything else by level */
   --level-ceo: var(--danger-500);
   --kind-event: var(--success-600);

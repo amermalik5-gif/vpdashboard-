@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, Plus, Search, X } from 'lucide-react'
+import { ChevronLeft, CornerDownLeft, Link2, Plus, Search, X } from 'lucide-react'
 import { DateInput } from '@/components/DateInput'
 import { ReadyStar } from '@/components/ReadyStar'
 import { Badge } from '@/components/ui/Badge'
@@ -10,7 +10,7 @@ import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { fmtDay, fmtWhen, toArabicDigits } from '@/lib/format'
-import { STATUS, chosenStatus, daysOverdue, hasDate, isOverdue, isReady, itemNumbers, parseDate, progressPatch, span, statusOf, statusPatch, type Status } from '@/lib/schedule'
+import { STATUS, chosenStatus, daysOverdue, hasDate, isOverdue, isReady, itemNumbers, needsReason, parseDate, progressPatch, span, statusOf, statusPatch, type Status } from '@/lib/schedule'
 import { ITEM_KINDS, TASK_STATUSES, type ItemKind, type Task } from '@/lib/types'
 
 type Sort = 'order' | 'rank' | 'late' | 'end' | 'progress' | 'recent'
@@ -53,6 +53,55 @@ function Overdue({ t, className }: { t: Task; className?: string }) {
 }
 
 const Num = ({ v }: { v: number | null }) => <span className="font-ui tabular">{v == null ? '—' : toArabicDigits(v)}</span>
+
+/**
+ * The line under an item's title: the owner (red when missing: every item needs one), the sponsor,
+ * what it is part of, the actual launch day and the output links (each opens in a new tab).
+ */
+function ItemMeta({ t, main, links = true, className }: { t: Task; main?: Task; links?: boolean; className?: string }) {
+  const shown = t.links.slice(0, 3)
+  return (
+    <div className={cn('mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-2xs text-fg-tertiary', className)}>
+      {t.owner ? (
+        <span>
+          المسؤول: <span className="font-medium text-fg-secondary">{t.owner}</span>
+        </span>
+      ) : (
+        <Badge tone="danger" size="xs">
+          بلا مسؤول
+        </Badge>
+      )}
+      {t.sponsor && (
+        <span>
+          الراعي: <span className="font-medium text-fg-secondary">{t.sponsor}</span>
+        </span>
+      )}
+      {main && <span>جزء من «{main.title}»</span>}
+      {t.actualEnd && <span className="text-success-700">أُطلق في {fmtWhen(parseDate(t.actualEnd)!)}</span>}
+      {links &&
+        shown.map((l, i) => (
+          <a
+            key={i}
+            href={l.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={l.url}
+            className="inline-flex max-w-[150px] items-center gap-1 rounded text-brand hover:underline"
+          >
+            <Link2 size={12} aria-hidden className="shrink-0" />
+            <span className="truncate">{l.name || 'رابط'}</span>
+          </a>
+        ))}
+      {links && t.links.length > shown.length && <span>+{toArabicDigits(t.links.length - shown.length)}</span>}
+      {!links && t.links.length > 0 && (
+        <span className="inline-flex items-center gap-1 text-brand">
+          <Link2 size={12} aria-hidden />
+          {toArabicDigits(t.links.length)}
+        </span>
+      )}
+    </div>
+  )
+}
 
 /* ---------- cells edited in place (plain text for visitors, who can only view) ---------- */
 /** Which column groups are read-only for the signed-in account. */
@@ -98,8 +147,25 @@ function SelectCell({
 const numOptions = (values: number[], suffix = ''): [string, string][] => [['', '—'], ...values.map((n): [string, string] => [String(n), `${toArabicDigits(n)}${suffix}`])]
 
 /** Free text: saved when the field loses focus or on Enter, never on every keystroke. */
-function TextCell({ value, label, placeholder, onSave }: { value: string; label: string; placeholder?: string; onSave: (v: string) => void }) {
-  const locked = useContext(Locked).vp
+function TextCell({
+  value,
+  label,
+  placeholder,
+  onSave,
+  team = false,
+  alert,
+}: {
+  value: string
+  label: string
+  placeholder?: string
+  onSave: (v: string) => void
+  /** one of the team's columns (any signed-in account); otherwise the VP's */
+  team?: boolean
+  /** shown in red while the cell is empty (e.g. «أضف السبب») */
+  alert?: string
+}) {
+  const ctx = useContext(Locked)
+  const locked = team ? ctx.team : ctx.vp
   const [draft, setDraft] = useState(value)
   const focused = useRef(false)
   useEffect(() => {
@@ -107,8 +173,8 @@ function TextCell({ value, label, placeholder, onSave }: { value: string; label:
   }, [value])
   if (locked)
     return (
-      <span aria-label={label} title={value} className={cn(textCls, 'truncate text-fg-secondary')}>
-        {value || '—'}
+      <span aria-label={label} title={value} className={cn(textCls, 'truncate text-fg-secondary', !value && alert && 'font-medium text-danger-700')}>
+        {value || alert || '—'}
       </span>
     )
   const commit = () => {
@@ -119,9 +185,9 @@ function TextCell({ value, label, placeholder, onSave }: { value: string; label:
     <input
       aria-label={label}
       title={value || undefined}
-      className={cellCls}
+      className={cn(cellCls, !draft && alert && 'border-danger-200 bg-danger-50/60 placeholder:font-medium placeholder:text-danger-700')}
       value={draft}
-      placeholder={placeholder}
+      placeholder={!draft && alert ? alert : placeholder}
       maxLength={2000}
       onFocus={() => (focused.current = true)}
       onChange={(e) => setDraft(e.target.value)}
@@ -189,15 +255,42 @@ export function Register() {
   const { state, labels, labelName, openTask, run, toast, patchLocal, readyOnly, setReadyOnly, canEdit, canEditAll } = useBoardCtx()
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<Sort>('order')
+  const [sponsor, setSponsor] = useState('')
+  const sponsors = useMemo(() => [...new Set((state?.tasks ?? []).map((t) => t.sponsor.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar')), [state])
   const tasks = useMemo(() => {
     const needle = q.trim()
     return [...(state?.tasks ?? [])]
       .filter((t) => !readyOnly || isReady(t))
-      .filter((t) => !needle || `${t.title} ${t.notes} ${labelName(t.label)} ${t.kind ? ITEM_KINDS[t.kind] : ''} ${STATUS[statusOf(t)].name}`.includes(needle))
+      .filter((t) => !sponsor || t.sponsor.trim() === sponsor)
+      .filter(
+        (t) =>
+          !needle ||
+          `${t.title} ${t.notes} ${t.teamNotes} ${t.owner} ${t.sponsor} ${labelName(t.label)} ${t.kind ? ITEM_KINDS[t.kind] : ''} ${STATUS[statusOf(t)].name}`.includes(needle),
+      )
       .sort(SORT_FN[sort])
-  }, [state, q, sort, labelName, readyOnly])
+  }, [state, q, sort, sponsor, labelName, readyOnly])
   // the same numbers as the bubbles in the matrix
   const numbers = useMemo(() => itemNumbers(state?.tasks ?? []), [state])
+  const byId = useMemo(() => new Map((state?.tasks ?? []).map((t) => [t.id, t])), [state])
+  // «جزء من»: each main item is followed by its parts (in the same order); a part whose main item
+  // is filtered out stays where it is, and says what it is part of
+  const rows = useMemo(() => {
+    const shown = new Set(tasks.map((t) => t.id))
+    const parts = new Map<string, Task[]>()
+    for (const t of tasks) if (t.parentId && shown.has(t.parentId)) parts.set(t.parentId, [...(parts.get(t.parentId) ?? []), t])
+    const out: { t: Task; part: boolean }[] = []
+    for (const t of tasks) {
+      if (t.parentId && shown.has(t.parentId)) continue
+      out.push({ t, part: false })
+      for (const p of parts.get(t.id) ?? []) out.push({ t: p, part: true })
+    }
+    return out
+  }, [tasks])
+  const partCount = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const t of state?.tasks ?? []) if (t.parentId && byId.has(t.parentId)) m.set(t.parentId, (m.get(t.parentId) ?? 0) + 1)
+    return m
+  }, [state, byId])
 
   // every cell saves on its own: shown at once, then confirmed by the server
   const save = (t: Task, patch: Partial<Task>) => {
@@ -213,8 +306,21 @@ export function Register() {
         <label className="relative block md:w-72">
           <span className="sr-only">بحث في المهام والفعاليات</span>
           <Search size={16} aria-hidden className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-fg-tertiary" />
-          <input className="field ps-9" type="search" placeholder="ابحث بالاسم أو النوع أو الحالة أو الملاحظات" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input className="field ps-9" type="search" placeholder="ابحث بالاسم أو المسؤول أو الحالة أو الملاحظات" value={q} onChange={(e) => setQ(e.target.value)} />
         </label>
+        {sponsors.length > 0 && (
+          <label className="flex items-center gap-2 text-sm text-fg-secondary">
+            <span className="shrink-0">الراعي</span>
+            <select aria-label="تصفية حسب الراعي (المدير العام)" className="field h-10 md:w-48" value={sponsor} onChange={(e) => setSponsor(e.target.value)}>
+              <option value="">الكل</option>
+              {sponsors.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <Tabs label="ترتيب المهام والفعاليات" items={SORTS} value={sort} onChange={setSort} />
           {canEditAll && (
@@ -254,15 +360,16 @@ export function Register() {
               <th className="w-[80px] py-3 text-center font-medium">الإنجاز</th>
               <th className="w-[124px] py-3 text-start font-medium">الحالة</th>
               <th className="w-[56px] py-3 text-center font-medium">جاهز للإطلاق</th>
-              <th className="min-w-[150px] bg-blue-50/60 py-3 pe-4 text-start font-medium text-blue-700">ملاحظات</th>
+              <th className="min-w-[170px] py-3 pe-4 text-start font-medium">ملاحظات الفريق</th>
             </tr>
           </thead>
           <tbody>
-            {tasks.map((t) => {
+            {rows.map(({ t, part }) => {
               const estimated = !t.end && hasDate(t)
               const name = t.title
+              const main = t.parentId ? byId.get(t.parentId) : undefined
               return (
-                <tr key={t.id} className="group border-t border-line-subtle align-middle transition-colors duration-fast hover:bg-neutral-25">
+                <tr key={t.id} className={cn('group border-t border-line-subtle align-middle transition-colors duration-fast hover:bg-neutral-25', part && 'border-t-line-subtle/50')}>
                   <td className="sticky start-0 z-[1] bg-surface py-2 ps-4 font-ui text-sm font-semibold tabular text-fg-secondary group-hover:bg-neutral-25">
                     <span className="flex items-center gap-1.5">
                       <span className="w-5 text-center">{toArabicDigits(numbers.get(t.id) ?? 0)}</span>
@@ -270,7 +377,8 @@ export function Register() {
                     </span>
                   </td>
                   <td className="sticky start-[52px] z-[1] bg-surface py-2 pe-3 shadow-[-8px_0_8px_-8px_rgba(16,24,40,0.12)] group-hover:bg-neutral-25">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <div className={cn('flex flex-wrap items-center gap-x-2 gap-y-1', part && 'ps-5')}>
+                      {part && <CornerDownLeft size={14} aria-label="بند فرعي" className="-ms-5 shrink-0 text-fg-muted" />}
                       <button
                         type="button"
                         onClick={() => openTask(t.id)}
@@ -287,7 +395,13 @@ export function Register() {
                           بانتظار الموافقة
                         </Badge>
                       )}
+                      {(partCount.get(t.id) ?? 0) > 0 && (
+                        <Badge tone="neutral" size="xs">
+                          بنود فرعية: {toArabicDigits(partCount.get(t.id)!)}
+                        </Badge>
+                      )}
                     </div>
+                    <ItemMeta t={t} main={!part ? main : undefined} className={part ? 'ps-5' : undefined} />
                   </td>
                   <td className="bg-blue-50/30 py-2">
                     <SelectCell label={`النوع — ${name}`} value={t.kind} options={KIND_OPTIONS} onSave={(v) => save(t, { kind: v as ItemKind })} />
@@ -361,8 +475,15 @@ export function Register() {
                       onChange={(e) => save(t, { ready: e.target.checked })}
                     />
                   </td>
-                  <td className="bg-blue-50/30 py-2 pe-4">
-                    <TextCell label={`ملاحظات — ${name}`} value={t.notes} placeholder="أضف ملاحظة" onSave={(v) => save(t, { notes: v })} />
+                  <td className="py-2 pe-4">
+                    <TextCell
+                      team
+                      label={`ملاحظات الفريق — ${name}`}
+                      value={t.teamNotes}
+                      placeholder="أضف آخر المستجدات"
+                      alert={needsReason(t) ? 'أضف السبب' : undefined}
+                      onSave={(v) => save(t, { teamNotes: v })}
+                    />
                   </td>
                 </tr>
               )
@@ -374,9 +495,9 @@ export function Register() {
 
       {/* phones and tablets: cards that open the full form */}
       <ul className="divide-y divide-line-subtle lg:hidden">
-        {tasks.map((t) => (
-          <li key={t.id}>
-            <button type="button" onClick={() => openTask(t.id)} className="block w-full p-4 text-start hover:bg-brand-soft">
+        {rows.map(({ t, part }) => (
+          <li key={t.id} className={cn(part && 'border-s-4 border-s-line-subtle')}>
+            <button type="button" onClick={() => openTask(t.id)} className={cn('block w-full p-4 text-start hover:bg-brand-soft', part && 'ps-6')}>
               <div className="flex items-start gap-3">
                 <span className="mt-1.5 h-3 w-3 shrink-0 rounded-full" style={{ background: STATUS[statusOf(t)].color }} />
                 <div className="min-w-0 flex-1">
@@ -400,6 +521,11 @@ export function Register() {
                     {t.draft && (
                       <Badge tone="warning" size="xs">
                         بانتظار الموافقة
+                      </Badge>
+                    )}
+                    {(partCount.get(t.id) ?? 0) > 0 && (
+                      <Badge tone="neutral" size="xs">
+                        بنود فرعية: {toArabicDigits(partCount.get(t.id)!)}
                       </Badge>
                     )}
                   </div>
@@ -430,7 +556,12 @@ export function Register() {
                   <div className="mt-3">
                     <Progress t={t} />
                   </div>
-                  {t.notes && <p className="mt-2 text-xs text-fg-secondary">{t.notes}</p>}
+                  <ItemMeta t={t} main={!part && t.parentId ? byId.get(t.parentId) : undefined} links={false} />
+                  {t.teamNotes ? (
+                    <p className="mt-2 text-xs text-fg-secondary">{t.teamNotes}</p>
+                  ) : (
+                    needsReason(t) && <p className="mt-2 text-xs font-medium text-danger-700">أضف السبب في ملاحظات الفريق</p>
+                  )}
                 </div>
               </div>
             </button>
@@ -445,9 +576,9 @@ export function Register() {
         {canEditAll
           ? 'عدّل أي قيمة مباشرة في الجدول وتُحفظ فورًا. '
           : canEdit
-            ? 'حساب الفريق يحدّث أعمدة الجهد والإنجاز والحالة وجاهز للإطلاق مباشرة في الجدول. '
+            ? 'حساب الفريق يحدّث أعمدة الجهد والإنجاز والحالة وجاهز للإطلاق وملاحظات الفريق مباشرة في الجدول. '
             : 'للعرض فقط. سجّل الدخول للتعديل. '}
-        الأعمدة المظللة يحددها نائب الرئيس، والجهد ونسبة الإنجاز والحالة يحدّثها الفريق، والحالة تحدد اللون. اضغط على الاسم لفتح كل التفاصيل.
+        الأعمدة المظللة يحددها نائب الرئيس، والجهد ونسبة الإنجاز والحالة وملاحظات الفريق يحدّثها الفريق، والحالة تحدد اللون. البند الأحمر أو البرتقالي يحتاج سببًا في ملاحظات الفريق. اضغط على الاسم لفتح كل التفاصيل.
       </p>
     </Card>
   )

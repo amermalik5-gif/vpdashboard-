@@ -48,7 +48,9 @@ export function span(t: Task): [Date, Date] {
  */
 export type Status = Exclude<TaskStatus, ''>
 export const isDone = (t: Task) => t.status === 'done' || (!t.status && t.progress >= 100)
-export const isOpen = (t: Task) => !isDone(t)
+/** «متوقفة»: stopped on someone's direction; neither open nor late. */
+export const isOnHold = (t: Task) => t.status === 'on-hold'
+export const isOpen = (t: Task) => !isDone(t) && !isOnHold(t)
 /** Ticked «جاهز للإطلاق» and not launched yet (once complete, the star has done its job). */
 export const isReady = (t: Task) => t.ready && isOpen(t)
 /** The status the team chose (what the drop-downs show). An overdue item keeps it, though it counts as «متأخرة». */
@@ -62,6 +64,7 @@ export const STATUS: Record<Status, { name: string; color: string; ink: string }
   'at-risk': { name: TASK_STATUSES['at-risk'], color: 'var(--status-at-risk)', ink: 'var(--nwc-blue-900)' },
   late: { name: TASK_STATUSES.late, color: 'var(--status-late)', ink: '#fff' },
   done: { name: TASK_STATUSES.done, color: 'var(--status-done)', ink: '#fff' },
+  'on-hold': { name: TASK_STATUSES['on-hold'], color: 'var(--status-on-hold)', ink: '#fff' },
 }
 /** The patch for a new status: complete also fills the progress. */
 export const statusPatch = (status: Status): Partial<Task> => (status === 'done' ? { status, progress: 100 } : { status })
@@ -71,8 +74,15 @@ export const progressPatch = (t: Task, progress: number): Partial<Task> =>
 
 /** The item has a date: one set by the VP, or one estimated from an expected duration. */
 export const hasDate = (t: Task) => !!t.end || !!t.expectation
-/** Open, dated, and its day has passed. */
-export const isOverdue = (t: Task, now = today()) => isOpen(t) && hasDate(t) && span(t)[1] < now
+/** Open, dated, not launched yet (no actual launch date), and its day has passed. */
+export const isOverdue = (t: Task, now = today()) => isOpen(t) && !t.actualEnd && hasDate(t) && span(t)[1] < now
+/** Red or amber with no word from the team on why (18 Nov 2026: every red or amber item says why). */
+export const needsReason = (t: Task) => {
+  const s = statusOf(t)
+  return (s === 'late' || s === 'at-risk') && !t.teamNotes.trim()
+}
+/** The bigger item this one is part of, if it still exists. */
+export const parentOf = (t: Task, byId: Map<string, Task>) => (t.parentId ? byId.get(t.parentId) : undefined)
 export const daysOverdue = (t: Task, now = today()) => Math.max(0, daysBetween(span(t)[1], now))
 
 /**

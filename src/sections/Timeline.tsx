@@ -7,8 +7,8 @@ import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import { countItems, fmtDate, fmtDay, fmtMonth, toArabicDigits } from '@/lib/format'
-import { addDays, isoDate, isOverdue, isReady, itemNumbers, packRows, parseDate, span, STATUS, statusOf, today, weekStart, type Status } from '@/lib/schedule'
-import { ITEM_KINDS, type ItemKind, type Task } from '@/lib/types'
+import { addDays, isOnHold, isoDate, isOverdue, isReady, itemNumbers, packRows, parseDate, span, STATUS, statusOf, today, weekStart, type Status } from '@/lib/schedule'
+import { ITEM_KINDS, TASK_STATUSES, type ItemKind, type Task } from '@/lib/types'
 
 type View = 'timeline' | 'calendar'
 const VIEWS: { id: View; label: string }[] = [
@@ -126,9 +126,11 @@ export function Timeline() {
           { key: '__event', name: `${ITEM_KINDS.event} (غير الرئيس التنفيذي)`, color: 'var(--kind-event)' },
           ...labels.filter((l) => l.id !== 'ceo').map((l) => ({ key: l.id, name: l.name, color: levelColor(l.id) })),
           { key: '__none', name: 'بدون مستوى', color: 'var(--level-none)' },
+          { key: '__hold', name: TASK_STATUSES['on-hold'], color: STATUS['on-hold'].color },
         ]
       : (Object.keys(STATUS) as Status[]).map((k) => ({ key: k, name: STATUS[k].name, color: STATUS[k].color }))
-  const colorOf = (t: Task) => (view === 'calendar' ? calendarColor(t) : STATUS[statusOf(t)].color)
+  // «متوقفة» is grey in both views, so stopped work never reads as planned
+  const colorOf = (t: Task) => (isOnHold(t) ? STATUS['on-hold'].color : view === 'calendar' ? calendarColor(t) : STATUS[statusOf(t)].color)
 
   /* calendar drag and drop: onto a day sets the date, onto «بلا تاريخ بعد» clears it */
   // the ref is set the moment a drag starts, so drop targets can accept it at once; the state
@@ -703,6 +705,7 @@ function MonthCalendar({
       >
         <span className="truncate">{t.title}</span>
         {isReady(t) && <ReadyStar size={12} />}
+        {isOnHold(t) && <span className="shrink-0 text-2xs font-normal text-fg-tertiary">متوقفة</span>}
       </div>
     )
   }
