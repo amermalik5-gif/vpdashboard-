@@ -41,12 +41,23 @@ const QUADRANTS = [
 export function Matrix() {
   const { state, labels, openTask, run, patchLocal, canEditAll } = useBoardCtx()
   const [filter, setFilter] = useState<string[]>([])
+  // «الراعي (المدير العام)»: other sponsors' items fade, like the level filter
+  const [sponsor, setSponsor] = useState('')
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null)
   // the item under the pointer, in the matrix or the list beside it: both highlight it
   const [hover, setHover] = useState<string | null>(null)
   const svg = useRef<SVGSVGElement>(null)
   const start = useRef<{ x: number; y: number; moved: boolean; at: { x: number; y: number } } | null>(null)
-  const tasks = state?.tasks ?? []
+  const all = state?.tasks ?? []
+  // «جزء من»: for the VP a launch is one item, so its parts don't get bubbles of their own
+  const byId = useMemo(() => new Map(all.map((t) => [t.id, t])), [all])
+  const tasks = useMemo(() => all.filter((t) => !(t.parentId && byId.has(t.parentId))), [all, byId])
+  const partCount = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const t of all) if (t.parentId && byId.has(t.parentId)) m.set(t.parentId, (m.get(t.parentId) ?? 0) + 1)
+    return m
+  }, [all, byId])
+  const sponsors = useMemo(() => [...new Set(all.map((t) => t.sponsor.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar')), [all])
 
   // on narrow screens the 720-unit drawing shrinks: scale the text up so it stays readable
   const wrap = useRef<HTMLDivElement>(null)
@@ -66,7 +77,7 @@ export function Matrix() {
       .sort((a, b) => b.r - a.r)
     return spreadBubbles(items, BOX)
   }, [tasks])
-  const numbers = useMemo(() => itemNumbers(tasks), [tasks])
+  const numbers = useMemo(() => itemNumbers(all), [all])
   const byNumber = (a: Task, b: Task) => numbers.get(a.id)! - numbers.get(b.id)!
   // the VP said no item may be missing: unscored ones wait in the tray, in list order
   const tray = useMemo(
@@ -130,7 +141,8 @@ export function Matrix() {
   const bubble = (b: { t: Task; x: number; y: number; r: number }, scored: boolean) => {
     const t = b.t
     const st = STATUS[statusOf(t)]
-    const dim = filter.length > 0 && !filter.includes(t.label)
+    const dim = (filter.length > 0 && !filter.includes(t.label)) || (!!sponsor && t.sponsor.trim() !== sponsor)
+    const parts = partCount.get(t.id) ?? 0
     const d = drag?.id === t.id ? drag : null
     const x = d ? d.x : b.x
     const y = d ? d.y : b.y
@@ -142,7 +154,7 @@ export function Matrix() {
         opacity={dim ? 0.25 : 1}
         tabIndex={0}
         role="button"
-        aria-label={`${scored ? `${t.title}: أهمية ${t.priority}، استعجال ${t.urgency}، ${st.name}` : `${t.title}: لم تُقيَّم بعد، ${st.name}`}${isReady(t) ? '، جاهز للإطلاق' : ''}`}
+        aria-label={`${scored ? `${t.title}: أهمية ${t.priority}، استعجال ${t.urgency}، ${st.name}` : `${t.title}: لم تُقيَّم بعد، ${st.name}`}${isReady(t) ? '، جاهز للإطلاق' : ''}${parts ? `، يضم بنودًا فرعية: ${parts}` : ''}`}
         onPointerEnter={() => setHover(t.id)}
         onPointerLeave={() => setHover(null)}
         onFocus={() => setHover(t.id)}
@@ -152,7 +164,7 @@ export function Matrix() {
         onPointerUp={(e) => onUp(e, t, scored)}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(t.id))}
       >
-        <title>{`${n}. ${t.title}، ${st.name}${isReady(t) ? '، ★ جاهز للإطلاق' : ''}\n${scored ? `الأهمية ${toArabicDigits(t.priority ?? 0)}، الاستعجال ${toArabicDigits(t.urgency ?? 0)}` : canEditAll ? 'لم تُقيَّم بعد: اسحبها إلى المصفوفة' : 'لم تُقيَّم بعد'}`}</title>
+        <title>{`${n}. ${t.title}، ${st.name}${isReady(t) ? '، ★ جاهز للإطلاق' : ''}${parts ? `\nبنود فرعية: ${toArabicDigits(parts)}` : ''}\n${scored ? `الأهمية ${toArabicDigits(t.priority ?? 0)}، الاستعجال ${toArabicDigits(t.urgency ?? 0)}` : canEditAll ? 'لم تُقيَّم بعد: اسحبها إلى المصفوفة' : 'لم تُقيَّم بعد'}`}</title>
         <circle cx={x} cy={y} r={b.r} fill={st.color} stroke="#fff" strokeWidth={2} />
         {hover === t.id && <circle cx={x} cy={y} r={b.r + 5} fill="none" stroke="var(--nwc-blue-500)" strokeWidth={2.5} />}
         <text x={x} y={y + 4.5 * Math.min(k, 1.4)} textAnchor="middle" fontSize={13 * Math.min(k, 1.4)} fontWeight={700} fill={st.ink} pointerEvents="none">
@@ -161,11 +173,29 @@ export function Matrix() {
         {isReady(t) && (
           <polygon points={starPoints(x + b.r * 0.72, y - b.r * 0.72, 7.5 * Math.min(k, 1.4))} fill="var(--ready)" stroke="#fff" strokeWidth={1.5} strokeLinejoin="round" pointerEvents="none" />
         )}
+        {parts > 0 && (
+          // «+٤» on the top-left (the ★ takes the top-right): the parts that share this one bubble
+          <g pointerEvents="none">
+            <rect
+              x={x - b.r * 0.72 - 11 * Math.min(k, 1.4)}
+              y={y - b.r * 0.72 - 7.5 * Math.min(k, 1.4)}
+              width={22 * Math.min(k, 1.4)}
+              height={15 * Math.min(k, 1.4)}
+              rx={7.5 * Math.min(k, 1.4)}
+              fill="#fff"
+              stroke="var(--nwc-blue-500)"
+              strokeWidth={1.25}
+            />
+            <text x={x - b.r * 0.72} y={y - b.r * 0.72 + 3.6 * Math.min(k, 1.4)} textAnchor="middle" fontSize={10 * Math.min(k, 1.4)} fontWeight={700} fill="var(--nwc-blue-700)">
+              {`+${toArabicDigits(parts)}`}
+            </text>
+          </g>
+        )}
       </g>
     )
   }
 
-  const counts = (id: string) => tasks.filter((t) => t.label === id).length
+  const counts = (id: string) => all.filter((t) => t.label === id).length
 
   return (
     <Card padding="none" className="min-w-0 p-4 md:p-6">
@@ -174,14 +204,29 @@ export function Matrix() {
           <h3 className="text-xl font-medium">الأهمية والاستعجال</h3>
           <p className="text-sm text-fg-tertiary">الرقم = رقم البند في الجدول · الحجم = الجهد · اللون = الحالة{canEditAll && ' · اسحب الفقاعة لتغيير موقعها'}</p>
         </div>
-        <FilterChips
-          label="تصفية حسب المستوى"
-          allLabel="الكل"
-          multiple
-          value={filter}
-          onChange={setFilter}
-          chips={labels.map((l) => ({ id: l.id, label: l.name, count: counts(l.id) }))}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <FilterChips
+            label="تصفية حسب المستوى"
+            allLabel="الكل"
+            multiple
+            value={filter}
+            onChange={setFilter}
+            chips={labels.map((l) => ({ id: l.id, label: l.name, count: counts(l.id) }))}
+          />
+          {sponsors.length > 0 && (
+            <label className="flex items-center gap-2 text-sm text-fg-secondary">
+              <span className="shrink-0">الراعي</span>
+              <select aria-label="المصفوفة: تصفية حسب الراعي (المدير العام)" className="field h-10 w-44" value={sponsor} onChange={(e) => setSponsor(e.target.value)}>
+                <option value="">الكل</option>
+                {sponsors.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -251,7 +296,7 @@ export function Matrix() {
         </svg>
       </div>
 
-      <KeyList tasks={tasks} numbers={numbers} hover={hover} setHover={setHover} />
+      <KeyList tasks={all} numbers={numbers} hover={hover} setHover={setHover} />
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-fg-secondary">
@@ -276,7 +321,17 @@ export function Matrix() {
  */
 function KeyList({ tasks, numbers, hover, setHover }: { tasks: Task[]; numbers: Map<string, number>; hover: string | null; setHover: (id: string | null) => void }) {
   const { openTask, run, patchLocal, canEditAll } = useBoardCtx()
-  const saved = useMemo(() => [...tasks].sort((a, b) => numbers.get(a.id)! - numbers.get(b.id)!).map((t) => t.id), [tasks, numbers])
+  const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks])
+  const sorted = useMemo(() => [...tasks].sort((a, b) => numbers.get(a.id)! - numbers.get(b.id)!), [tasks, numbers])
+  // «جزء من»: parts sit under their main item and move with it; only main items are dragged
+  const isPart = (t: Task) => !!t.parentId && byId.has(t.parentId)
+  const partsOf = useMemo(() => {
+    const m = new Map<string, Task[]>()
+    for (const t of sorted) if (t.parentId && byId.has(t.parentId)) m.set(t.parentId, [...(m.get(t.parentId) ?? []), t])
+    return m
+  }, [sorted, byId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const saved = useMemo(() => sorted.filter((t) => !isPart(t)).map((t) => t.id), [sorted, byId])
   const [order, setOrder] = useState(saved)
   const latest = useRef(order)
   latest.current = order
@@ -287,15 +342,22 @@ function KeyList({ tasks, numbers, hover, setHover }: { tasks: Task[]; numbers: 
     if (!dragging.current) setOrder(saved)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedKey])
-  const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks])
 
-  // shown at once (every item renumbered), then saved: the server renumbers the same way
-  const commit = (id: string, ids: string[]) => {
-    const to = ids.indexOf(id) + 1
-    if (!to || to === numbers.get(id)) return
+  // shown at once (every item renumbered), then saved: the server renumbers the same way. A main
+  // item goes right before the main item that now follows it (parts keep their own numbers).
+  const commit = (id: string, mains: string[]) => {
+    if (mains.join(',') === saved.join(',')) return
+    const next = mains[mains.indexOf(id) + 1]
+    const ids = sorted.map((t) => t.id).filter((x) => x !== id)
+    const at = next ? ids.indexOf(next) : ids.length
+    ids.splice(at, 0, id)
+    const to = at + 1
+    if (to === numbers.get(id)) return
     ids.forEach((x, i) => patchLocal(x, { position: i + 1 }))
     void run(() => api.moveTask(id, to), `نُقل البند إلى الرقم ${toArabicDigits(to)}`)
   }
+  // with no parts anywhere, the numbers follow the list live while dragging
+  const live = partsOf.size === 0
   const moveBy = (id: string, d: number) => {
     const ids = [...latest.current]
     const i = ids.indexOf(id)
@@ -321,7 +383,10 @@ function KeyList({ tasks, numbers, hover, setHover }: { tasks: Task[]; numbers: 
             <KeyRow
               key={id}
               t={t}
-              n={i + 1}
+              n={live ? i + 1 : (numbers.get(id) ?? 0)}
+              parts={partsOf.get(id) ?? []}
+              numbers={numbers}
+              onOpenItem={openTask}
               active={hover === id}
               onHover={(on) => setHover(on ? id : null)}
               onOpen={() => openTask(id)}
@@ -340,7 +405,20 @@ function KeyList({ tasks, numbers, hover, setHover }: { tasks: Task[]; numbers: 
   )
 }
 
-function KeyRow(p: { t: Task; n: number; active: boolean; onHover: (on: boolean) => void; onOpen: () => void; onDragStart: () => void; onDragEnd: () => void; onMoveBy: (d: number) => void; canEditAll: boolean }) {
+function KeyRow(p: {
+  t: Task
+  n: number
+  parts: Task[]
+  numbers: Map<string, number>
+  onOpenItem: (id: string) => void
+  active: boolean
+  onHover: (on: boolean) => void
+  onOpen: () => void
+  onDragStart: () => void
+  onDragEnd: () => void
+  onMoveBy: (d: number) => void
+  canEditAll: boolean
+}) {
   const controls = useDragControls()
   const st = STATUS[statusOf(p.t)]
   const unscored = p.t.priority == null || p.t.urgency == null
@@ -390,6 +468,24 @@ function KeyRow(p: { t: Task; n: number; active: boolean; onHover: (on: boolean)
           {unscored && <span className="shrink-0 text-2xs text-fg-tertiary">لم تُقيَّم</span>}
         </button>
       </div>
+      {p.parts.length > 0 && (
+        <ul aria-label={`البنود الفرعية لـ «${p.t.title}»`} className="mb-1 ms-8 border-s border-line-subtle ps-2">
+          {p.parts.map((x) => {
+            const xs = STATUS[statusOf(x)]
+            return (
+              <li key={x.id}>
+                <button type="button" onClick={() => p.onOpenItem(x.id)} className="flex w-full min-w-0 items-center gap-2 rounded py-0.5 text-start text-xs text-fg-secondary hover:bg-neutral-50 hover:text-brand">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-2xs font-bold tabular" style={{ background: xs.color, color: xs.ink }}>
+                    {toArabicDigits(p.numbers.get(x.id) ?? 0)}
+                  </span>
+                  <span className="truncate">{x.title}</span>
+                  {isReady(x) && <ReadyStar size={11} />}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </Reorder.Item>
   )
 }

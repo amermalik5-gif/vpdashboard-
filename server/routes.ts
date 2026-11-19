@@ -70,7 +70,24 @@ function cleanTaskField(k: (typeof TASK_FIELDS)[number], v: unknown): unknown {
     case 'label':
       return str(v, 40, k)
     case 'notes':
+    case 'teamNotes':
       return str(v, 2000, k)
+    case 'sponsor':
+      return str(v, 80, k)
+    case 'actualEnd':
+      return date(v, k)
+    case 'parentId': {
+      const s = str(v, 64, k)
+      if (s && !/^[\w-]+$/.test(s)) throw new Invalid('جزء من: بند غير معروف.')
+      return s
+    }
+    case 'outputs': {
+      if (v == null) return []
+      if (!Array.isArray(v) || v.length > 20) throw new Invalid('المخرج النهائي المطلوب: قائمة غير صالحة.')
+      return [...new Set(v.map((x) => str(x, 80, k)).filter(Boolean))]
+    }
+    case 'links':
+      return cleanLinks(v)
     case 'priority':
     case 'urgency':
       return intIn(v, 0, 10, k)
@@ -90,6 +107,37 @@ function cleanTaskField(k: (typeof TASK_FIELDS)[number], v: unknown): unknown {
     case 'ready':
       return !!v
   }
+}
+
+/** «روابط المخرجات»: up to 20 links, each a web address (http or https) with an optional name. */
+function cleanLinks(v: unknown) {
+  if (v == null) return []
+  if (!Array.isArray(v) || v.length > 20) throw new Invalid('روابط المخرجات: قائمة غير صالحة (٢٠ رابطًا على الأكثر).')
+  return v.map((l) => {
+    const raw = str((l as { url?: unknown })?.url, 1000, 'links')
+    let url: URL
+    try {
+      url = new URL(raw)
+    } catch {
+      throw new Invalid(`روابط المخرجات: «${raw.slice(0, 60)}» ليس رابطًا. اكتب الرابط كاملًا يبدأ بـ https://`)
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Invalid('روابط المخرجات: يُقبل رابط يبدأ بـ https:// أو http:// فقط.')
+    const name = str((l as { name?: unknown })?.name, 120, 'links') || url.hostname
+    return { name, url: url.href }
+  })
+}
+
+/**
+ * «جزء من»: one level only. The main item must exist, must not be the item itself, and must not
+ * be a part of something else; an item that has parts can't become a part.
+ */
+function checkParent(itemId: string | null, parentId: unknown) {
+  if (!parentId) return
+  const parent = store.getTask(String(parentId))
+  if (!parent) throw new Invalid('جزء من: البند الرئيسي غير موجود.')
+  if (parent.id === itemId) throw new Invalid('جزء من: لا يكون البند جزءًا من نفسه.')
+  if (parent.parentId) throw new Invalid(`جزء من: «${parent.title}» نفسه جزء من بند آخر، فاختر البند الرئيسي.`)
+  if (itemId && store.listTasks().some((t) => t.parentId === itemId)) throw new Invalid('جزء من: لهذا البند بنود فرعية، فلا يكون جزءًا من بند آخر.')
 }
 
 function cleanEventField(k: (typeof EVENT_FIELDS)[number], v: unknown): unknown {
@@ -189,8 +237,10 @@ const csvCell = (v: unknown) => {
 api.get('/backup/tasks.csv', requireAdmin, (_req, res) => {
   const { labels } = store.getSettings()
   const labelName = (id: string) => labels.find((l) => l.id === id)?.name ?? id
-  const head = ['المهمة / الفعالية', 'النوع', 'الفئة', 'المستوى', 'درجة الأهمية', 'مستوى الاستعجال', 'المدة المتوقعة', 'الجهد', 'نسبة الإنجاز', 'الحالة', 'جاهز للإطلاق', 'تاريخ البدء', 'التاريخ', 'المسؤول', 'الملاحظات', 'بانتظار التأكيد', 'آخر تعديل بواسطة', 'آخر تعديل (بتوقيت الرياض)']
-  const rows = store.listTasks().map((t) => [
+  const head = ['المهمة / الفعالية', 'النوع', 'الفئة', 'المستوى', 'درجة الأهمية', 'مستوى الاستعجال', 'المدة المتوقعة', 'الجهد', 'نسبة الإنجاز', 'الحالة', 'جاهز للإطلاق', 'تاريخ البدء', 'التاريخ', 'تاريخ الإطلاق الفعلي', 'المسؤول', 'الراعي (المدير العام)', 'جزء من', 'المخرج النهائي المطلوب', 'توجيهات نائب الرئيس', 'ملاحظات الفريق', 'روابط المخرجات', 'بانتظار التأكيد', 'آخر تعديل بواسطة', 'آخر تعديل (بتوقيت الرياض)']
+  const all = store.listTasks()
+  const titleOf = (id: string) => all.find((x) => x.id === id)?.title ?? ''
+  const rows = all.map((t) => [
     t.title,
     t.kind ? ITEM_KINDS[t.kind] : '',
     t.category,
@@ -204,8 +254,14 @@ api.get('/backup/tasks.csv', requireAdmin, (_req, res) => {
     t.ready ? 'نعم' : 'لا',
     t.start,
     t.end,
+    t.actualEnd,
     t.owner,
+    t.sponsor,
+    t.parentId ? titleOf(t.parentId) : '',
+    t.outputs.join('، '),
     t.notes,
+    t.teamNotes,
+    t.links.map((l) => `${l.name}: ${l.url}`).join('\n'),
     t.draft ? 'نعم' : 'لا',
     t.updatedBy,
     riyadhTime(t.updatedAt),
@@ -258,14 +314,19 @@ api.post(
       labels: cleanOptions(st.labels, 'المستويات'),
       eventTypes: cleanOptions(st.eventTypes, 'أنواع الفعاليات'),
       categories: Array.isArray(st.categories) ? [...new Set(st.categories.map((c) => str(c, 80, 'الفئة')).filter(Boolean))] : [],
+      // backups made before 18 Nov 2026 have no outputs list: keep the default
+      ...(Array.isArray(st.outputs) ? { outputs: [...new Set(st.outputs.map((c) => str(c, 80, 'المخرجات')).filter(Boolean))] } : {}),
     }
+    // «جزء من» must point to a main item in the same file
+    const byId = new Map(tasks.map((t) => [t.id, t]))
+    for (const t of tasks) if (t.parentId && (!byId.has(t.parentId) || byId.get(t.parentId)!.parentId || t.parentId === t.id)) t.parentId = ''
     const safety = snapshot('before-restore')
     store.db.transaction(() => {
       store.db.prepare('DELETE FROM tasks').run()
       store.db.prepare('DELETE FROM events').run()
       for (const t of tasks)
         store.insertTask(
-          { id: t.id, createdAt: t.createdAt, title: t.title, kind: t.kind ?? '', category: t.category ?? '', label: t.label ?? '', priority: t.priority ?? null, urgency: t.urgency ?? null, expectation: t.expectation ?? '', effort: t.effort ?? null, progress: t.progress, status: t.status ?? '', ready: !!t.ready, start: t.start ?? '', end: t.end ?? '', owner: t.owner ?? '', notes: t.notes ?? '', draft: t.draft, position: t.position, updatedAt: t.updatedAt, updatedBy: t.updatedBy },
+          { id: t.id, createdAt: t.createdAt, title: t.title, kind: t.kind ?? '', category: t.category ?? '', label: t.label ?? '', priority: t.priority ?? null, urgency: t.urgency ?? null, expectation: t.expectation ?? '', effort: t.effort ?? null, progress: t.progress, status: t.status ?? '', ready: !!t.ready, start: t.start ?? '', end: t.end ?? '', owner: t.owner ?? '', notes: t.notes ?? '', teamNotes: t.teamNotes ?? '', outputs: t.outputs ?? [], links: t.links ?? [], sponsor: t.sponsor ?? '', actualEnd: t.actualEnd ?? '', parentId: t.parentId ?? '', draft: t.draft, position: t.position, updatedAt: t.updatedAt, updatedBy: t.updatedBy },
           by,
         )
       // events from backups made before events and tasks were merged become items of type «فعالية»
@@ -289,6 +350,7 @@ api.post(
     const by = editor(req)
     const f = pick(req.body, TASK_FIELDS, cleanTaskField) as Partial<Task>
     if (!f.title) throw new Invalid('اكتب عنوانًا للمهمة.')
+    checkParent(null, f.parentId)
     const task = store.insertTask(
       {
         title: f.title,
@@ -306,6 +368,12 @@ api.post(
         end: f.end ?? '',
         owner: f.owner ?? '',
         notes: f.notes ?? '',
+        teamNotes: f.teamNotes ?? '',
+        outputs: f.outputs ?? [],
+        links: f.links ?? [],
+        sponsor: f.sponsor ?? '',
+        actualEnd: f.actualEnd ?? '',
+        parentId: f.parentId ?? '',
         draft: false,
       },
       by,
@@ -330,7 +398,8 @@ api.patch(
     const all = editsAll(currentUser(req)?.role)
     // a team account updates the «يحدّثها الفريق» part only
     if (!all && Object.keys(diff).some((k) => !(TEAM_FIELDS as readonly string[]).includes(k)))
-      return res.status(403).json({ error: 'حساب الفريق يحدّث حقول الفريق فقط: الجهد ونسبة الإنجاز والحالة وجاهز للإطلاق وتاريخ البدء والمسؤول.' })
+      return res.status(403).json({ error: 'حساب الفريق يحدّث حقول الفريق فقط: الجهد ونسبة الإنجاز والحالة وجاهز للإطلاق وملاحظات الفريق والمسؤول والراعي وتاريخ البدء وروابط المخرجات وتاريخ الإطلاق الفعلي.' })
+    if ('parentId' in diff) checkParent(before.id, diff.parentId)
     // «بانتظار تأكيد نائب الرئيس» clears when the VP's own values are set, or the VP or the admin confirms
     if (diff.draft === false && !all && !VP_FIELDS.some((k) => k in diff)) delete diff.draft
     if (Object.keys(diff).length) {
@@ -344,6 +413,12 @@ api.patch(
     res.json(store.getTask(before.id))
   }),
 )
+
+/* the earlier notes and directions of one item (18 Nov 2026: updates are kept, never lost) */
+api.get('/tasks/:id/history', requireEditor, (req, res) => {
+  if (!store.getTask(req.params.id)) return res.status(404).json({ error: 'لم تعد هذه المهمة موجودة.' })
+  res.json(store.notesHistory(req.params.id).map((e) => ({ field: e.field, text: typeof e.new === 'string' ? e.new : '', by: e.by, at: e.at })))
+})
 
 /* drag an item to another place in the list: any signed-in account, like any other edit */
 api.post(
@@ -373,8 +448,15 @@ api.delete(
     const by = editor(req)
     const before = store.getTask(req.params.id)
     if (!before) return res.status(404).json({ error: 'لم تعد هذه المهمة موجودة.' })
-    store.deleteRow('tasks', before.id)
-    store.audit({ entity: 'task', entityId: before.id, entityTitle: before.title, action: 'delete', field: '', old: before, new: null, by })
+    store.db.transaction(() => {
+      store.deleteRow('tasks', before.id)
+      store.audit({ entity: 'task', entityId: before.id, entityTitle: before.title, action: 'delete', field: '', old: before, new: null, by })
+      // its parts stay, as items of their own
+      for (const part of store.listTasks().filter((t) => t.parentId === before.id)) {
+        store.updateRow('tasks', part.id, { parentId: '' }, by)
+        store.audit({ entity: 'task', entityId: part.id, entityTitle: part.title, action: 'update', field: 'parentId', old: before.id, new: '', by })
+      }
+    })()
     changed()
     res.status(204).end()
   }),
@@ -462,6 +544,10 @@ api.put(
     if ('categories' in body) {
       if (!Array.isArray(body.categories) || body.categories.length > 40) throw new Invalid('قائمة الفئات غير صالحة.')
       next.categories = [...new Set(body.categories.map((c) => str(c, 80, 'الفئة')).filter(Boolean))]
+    }
+    if ('outputs' in body) {
+      if (!Array.isArray(body.outputs) || !body.outputs.length || body.outputs.length > 30) throw new Invalid('قائمة المخرجات غير صالحة.')
+      next.outputs = [...new Set(body.outputs.map((c) => str(c, 80, 'المخرجات')).filter(Boolean))]
     }
     let any = false
     store.db.transaction(() => {

@@ -1,7 +1,7 @@
-import type { ItemKind, Task } from '../src/lib/types.ts'
+import type { ItemKind, NewFields, Task } from '../src/lib/types.ts'
 import { riyadhDay } from './time.ts'
 
-type NewTask = Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'position' | 'ready'>
+type NewTask = Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'position' | 'ready' | NewFields>
 
 /** Titles of the sample rows from the first version, removed when the real list arrives. */
 export const SAMPLE_TITLES = [

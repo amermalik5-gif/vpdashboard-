@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { AuditEntry, EventItem, Role, Settings, Task, UserInfo } from '../src/lib/types.ts'
+import type { AuditEntry, EventItem, NewFields, OutputLink, Role, Settings, Task, UserInfo } from '../src/lib/types.ts'
 import { AWARD_TITLES, AWARDS_OCT31, realItems, SAMPLE_TITLES, seed } from './seed.ts'
 
 const FILE = process.env.DATABASE_PATH ?? (process.env.NODE_ENV === 'production' ? '/data/vp.db' : './data/vp.db')
@@ -17,7 +17,9 @@ db.exec(`
     id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '',
     priority INTEGER, urgency INTEGER, expectation TEXT NOT NULL DEFAULT '', effort INTEGER, progress INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', ready INTEGER NOT NULL DEFAULT 0,
     start TEXT NOT NULL DEFAULT '', "end" TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
-    draft INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL DEFAULT ''
+    draft INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL DEFAULT '',
+    team_notes TEXT NOT NULL DEFAULT '', outputs TEXT NOT NULL DEFAULT '[]', links TEXT NOT NULL DEFAULT '[]', sponsor TEXT NOT NULL DEFAULT '',
+    actual_end TEXT NOT NULL DEFAULT '', parent_id TEXT NOT NULL DEFAULT ''
   );
   CREATE TABLE IF NOT EXISTS events (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, date TEXT NOT NULL DEFAULT '', type TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
@@ -46,8 +48,28 @@ if (!cols.includes('kind')) db.exec("ALTER TABLE tasks ADD COLUMN kind TEXT NOT 
 if (!cols.includes('status')) db.exec("ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT ''")
 if (!cols.includes('position')) db.exec('ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0')
 if (!cols.includes('ready')) db.exec('ALTER TABLE tasks ADD COLUMN ready INTEGER NOT NULL DEFAULT 0')
+// 18 Nov 2026 meeting: team notes, the outputs the VP expects, output links, the sponsor, the actual
+// launch date and «جزء من»; existing items start with them empty
+for (const [c, def] of [
+  ['team_notes', "TEXT NOT NULL DEFAULT ''"],
+  ['outputs', "TEXT NOT NULL DEFAULT '[]'"],
+  ['links', "TEXT NOT NULL DEFAULT '[]'"],
+  ['sponsor', "TEXT NOT NULL DEFAULT ''"],
+  ['actual_end', "TEXT NOT NULL DEFAULT ''"],
+  ['parent_id', "TEXT NOT NULL DEFAULT ''"],
+])
+  if (!cols.includes(c)) db.exec(`ALTER TABLE tasks ADD COLUMN ${c} ${def}`)
 
 type Row = Record<string, unknown>
+/** A JSON list column (outputs, links); anything unreadable counts as empty. */
+const list = <T,>(v: unknown): T[] => {
+  try {
+    const x = JSON.parse(String(v ?? '[]'))
+    return Array.isArray(x) ? x : []
+  } catch {
+    return []
+  }
+}
 
 const toTask = (r: Row): Task => ({
   id: r.id as string,
@@ -66,6 +88,12 @@ const toTask = (r: Row): Task => ({
   end: r.end as string,
   owner: r.owner as string,
   notes: r.notes as string,
+  teamNotes: (r.team_notes ?? '') as string,
+  outputs: list<string>(r.outputs),
+  links: list<OutputLink>(r.links),
+  sponsor: (r.sponsor ?? '') as string,
+  actualEnd: (r.actual_end ?? '') as string,
+  parentId: (r.parent_id ?? '') as string,
   draft: !!r.draft,
   position: r.position as number,
   createdAt: r.created_at as number,
@@ -100,9 +128,9 @@ const toAudit = (r: Row): AuditEntry => ({
 })
 
 /* ---------- tasks ---------- */
-const COLS: Record<string, string> = { end: '"end"' }
+const COLS: Record<string, string> = { end: '"end"', teamNotes: 'team_notes', actualEnd: 'actual_end', parentId: 'parent_id' }
 const col = (k: string) => COLS[k] ?? k
-const sqlValue = (v: unknown) => (typeof v === 'boolean' ? Number(v) : v)
+const sqlValue = (v: unknown) => (typeof v === 'boolean' ? Number(v) : Array.isArray(v) ? JSON.stringify(v) : v)
 
 /** In list order: by position (the item's number), then by when it was added. */
 export const listTasks = (): Task[] => (db.prepare('SELECT * FROM tasks ORDER BY position, created_at, id').all() as Row[]).map(toTask)
@@ -112,7 +140,8 @@ export const getTask = (id: string): Task | undefined => {
 }
 
 export function insertTask(
-  t: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'kind' | 'status' | 'ready' | 'position'> & {
+  t: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy' | 'kind' | 'status' | 'ready' | 'position' | NewFields> &
+    Partial<Pick<Task, NewFields>> & {
     kind?: Task['kind']
     status?: Task['status']
     ready?: boolean
@@ -129,9 +158,37 @@ export function insertTask(
   // a new item goes to the end of the list
   const position = t.position ?? (db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM tasks').get() as { p: number }).p
   db.prepare(
-    `INSERT INTO tasks (id,title,kind,category,label,priority,urgency,expectation,effort,progress,status,ready,start,"end",owner,notes,draft,position,created_at,updated_at,updated_by)
-     VALUES (@id,@title,@kind,@category,@label,@priority,@urgency,@expectation,@effort,@progress,@status,@ready,@start,@end,@owner,@notes,@draft,@position,@created_at,@updated_at,@updated_by)`,
-  ).run({ ...t, kind: t.kind ?? '', status: t.status ?? '', ready: Number(!!t.ready), position, id, draft: Number(t.draft), created_at: t.createdAt ?? now, updated_at: t.updatedAt ?? now, updated_by: t.updatedBy ?? by })
+    `INSERT INTO tasks (id,title,kind,category,label,priority,urgency,expectation,effort,progress,status,ready,start,"end",owner,notes,team_notes,outputs,links,sponsor,actual_end,parent_id,draft,position,created_at,updated_at,updated_by)
+     VALUES (@id,@title,@kind,@category,@label,@priority,@urgency,@expectation,@effort,@progress,@status,@ready,@start,@end,@owner,@notes,@team_notes,@outputs,@links,@sponsor,@actual_end,@parent_id,@draft,@position,@created_at,@updated_at,@updated_by)`,
+  ).run({
+    id,
+    title: t.title,
+    kind: t.kind ?? '',
+    category: t.category,
+    label: t.label,
+    priority: t.priority,
+    urgency: t.urgency,
+    expectation: t.expectation,
+    effort: t.effort,
+    progress: t.progress,
+    status: t.status ?? '',
+    ready: Number(!!t.ready),
+    start: t.start,
+    end: t.end,
+    owner: t.owner,
+    notes: t.notes,
+    team_notes: t.teamNotes ?? '',
+    outputs: JSON.stringify(t.outputs ?? []),
+    links: JSON.stringify(t.links ?? []),
+    sponsor: t.sponsor ?? '',
+    actual_end: t.actualEnd ?? '',
+    parent_id: t.parentId ?? '',
+    draft: Number(t.draft),
+    position,
+    created_at: t.createdAt ?? now,
+    updated_at: t.updatedAt ?? now,
+    updated_by: t.updatedBy ?? by,
+  })
   return getTask(id)!
 }
 
@@ -199,6 +256,8 @@ export const DEFAULT_SETTINGS: Settings = {
     'الإعلانات',
     'أخرى',
   ],
+  // «المخرج النهائي المطلوب» (18 Nov 2026); the admin can change the list
+  outputs: ['فيديو', 'عرض تقديمي', 'خبر', 'مقال', 'حملة بريد إلكتروني', 'حفل أو فعالية حضورية', 'فعالية عن بُعد (Webex)', 'أخرى'],
   eventTypes: [
     { id: 'award', name: 'جائزة' },
     { id: 'certification', name: 'شهادة' },
@@ -234,6 +293,13 @@ export function audit(e: Omit<AuditEntry, 'id' | 'at'>) {
 export const listAudit = (limit: number): AuditEntry[] =>
   (db.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT ?').all(limit) as Row[]).map(toAudit)
 export const allAudit = (): AuditEntry[] => (db.prepare('SELECT * FROM audit ORDER BY id').all() as Row[]).map(toAudit)
+/** The notes and directions of one item, newest first: kept, never just overwritten. */
+export const notesHistory = (taskId: string): AuditEntry[] =>
+  (
+    db
+      .prepare("SELECT * FROM audit WHERE entity = 'task' AND entity_id = ? AND field IN ('notes', 'teamNotes') ORDER BY id DESC LIMIT 50")
+      .all(taskId) as Row[]
+  ).map(toAudit)
 export const getAudit = (id: number): AuditEntry | undefined => {
   const r = db.prepare('SELECT * FROM audit WHERE id = ?').get(id) as Row | undefined
   return r && toAudit(r)
