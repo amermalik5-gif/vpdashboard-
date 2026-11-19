@@ -398,7 +398,7 @@ api.patch(
     const all = editsAll(currentUser(req)?.role)
     // a team account updates the «يحدّثها الفريق» part only
     if (!all && Object.keys(diff).some((k) => !(TEAM_FIELDS as readonly string[]).includes(k)))
-      return res.status(403).json({ error: 'حساب الفريق يحدّث حقول الفريق فقط: الجهد ونسبة الإنجاز والحالة وجاهز للإطلاق وملاحظات الفريق والمسؤول والراعي وتاريخ البدء وروابط المخرجات وتاريخ الإطلاق الفعلي.' })
+      return res.status(403).json({ error: 'حساب الفريق يحدّث حقول الفريق فقط: الجهد ونسبة الإنجاز والحالة وجاهز للإطلاق وملاحظات الفريق والمسؤول والراعي وجزء من وتاريخ البدء وروابط المخرجات وتاريخ الإطلاق الفعلي.' })
     if ('parentId' in diff) checkParent(before.id, diff.parentId)
     // «بانتظار تأكيد نائب الرئيس» clears when the VP's own values are set, or the VP or the admin confirms
     if (diff.draft === false && !all && !VP_FIELDS.some((k) => k in diff)) delete diff.draft

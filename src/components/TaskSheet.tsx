@@ -348,25 +348,6 @@ export function TaskSheet() {
             <p className="field-hint">ما ينتظره نائب الرئيس من الفريق بالضبط. يحدده نائب الرئيس.</p>
           </div>
           <div className="sm:col-span-2">
-            <label htmlFor="t-parent" className="field-label">
-              جزء من
-            </label>
-            <select id="t-parent" className="field" value={f.parentId} disabled={hasParts} onChange={(e) => set('parentId', e.target.value)}>
-              <option value="">بند رئيسي (ليس جزءًا من بند آخر)</option>
-              {mains.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {toArabicDigits(numbers.get(t.id) ?? 0)}. {t.title}
-                </option>
-              ))}
-              {f.parentId && !mains.some((t) => t.id === f.parentId) && <option value={f.parentId}>(بند لم يعد موجودًا)</option>}
-            </select>
-            <p className="field-hint">
-              {hasParts
-                ? 'لهذا البند بنود فرعية، فهو بند رئيسي.'
-                : 'مثل فعاليات «إطلاق مركز العناية بالعملاء»: تظهر في المصفوفة بندًا واحدًا، وتُعرض البنود الفرعية تحته في الجدول.'}
-            </p>
-          </div>
-          <div className="sm:col-span-2">
             <label htmlFor="t-notes" className="field-label">
               توجيهات نائب الرئيس
             </label>
@@ -462,6 +443,25 @@ export function TaskSheet() {
                 <option key={o} value={o} />
               ))}
             </datalist>
+          </div>
+          <div className="sm:col-span-2">
+            <label htmlFor="t-parent" className="field-label">
+              جزء من
+            </label>
+            <select id="t-parent" className="field" value={f.parentId} disabled={hasParts} onChange={(e) => set('parentId', e.target.value)}>
+              <option value="">بند رئيسي (ليس جزءًا من بند آخر)</option>
+              {mains.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {toArabicDigits(numbers.get(t.id) ?? 0)}. {t.title}
+                </option>
+              ))}
+              {f.parentId && !mains.some((t) => t.id === f.parentId) && <option value={f.parentId}>(بند لم يعد موجودًا)</option>}
+            </select>
+            <p className="field-hint">
+              {hasParts
+                ? 'لهذا البند بنود فرعية، فهو بند رئيسي.'
+                : 'مثل فعاليات «إطلاق مركز العناية بالعملاء»: تظهر في المصفوفة بندًا واحدًا، وتُعرض البنود الفرعية تحته في الجدول.'}
+            </p>
           </div>
           <div>
             <label htmlFor="t-start" className="field-label">

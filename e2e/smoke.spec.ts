@@ -740,7 +740,7 @@ test('on a phone, the timeline opens as the calendar the first time', async ({ b
 
 /* ---------- the 18 Nov 2026 meeting: directions and team notes, outputs, owners, sponsors, parts ---------- */
 
-test('a team account updates the team notes, links, sponsor and actual launch date, but not the VP’s fields', async ({ request, playwright }) => {
+test('a team account updates the team notes, links, sponsor, actual launch date and «جزء من», but not the VP’s fields', async ({ request, playwright }) => {
   await apiSignIn(request)
   const made = await (await request.post('/api/tasks', { data: { title: 'بند لحقول الفريق', owner: 'نور' } })).json()
   const team = await playwright.request.newContext({ baseURL: BASE })
@@ -749,7 +749,11 @@ test('a team account updates the team notes, links, sponsor and actual launch da
   expect((await patch({ teamNotes: 'بانتظار موافقة المكتب', sponsor: 'عمار', actualEnd: '2026-11-18', links: [{ name: 'الفيديو', url: 'https://drive.google.com/x' }] })).status()).toBe(200)
   expect((await patch({ outputs: ['فيديو'] })).status()).toBe(403)
   expect((await patch({ notes: 'توجيه' })).status()).toBe(403)
-  expect((await patch({ parentId: (await tasksOf(request))[0].id })).status()).toBe(403)
+  // «جزء من» is the team's too (19 Nov 2026), with the same one-level rules
+  const main = (await tasksOf(request)).find((x) => !x.parentId && x.id !== made.id)!
+  expect((await patch({ parentId: main.id })).status()).toBe(200)
+  expect((await patch({ parentId: made.id })).status()).toBe(400)
+  expect((await patch({ parentId: '' })).status()).toBe(200)
   // links must be web addresses
   const bad = await request.patch(`/api/tasks/${made.id}`, { data: { links: [{ name: 'x', url: 'javascript:alert(1)' }] } })
   expect(bad.status()).toBe(400)
@@ -867,4 +871,22 @@ test('the table filters by sponsor, and output links open from the table', async
   expect(st.outputs).toEqual(['فيديو', 'عرض تقديمي', 'تقرير'])
   await request.delete(`/api/tasks/${a.id}`)
   await request.delete(`/api/tasks/${b.id}`)
+})
+
+test('a team account sets «جزء من» in the team part of the form', async ({ page, request }) => {
+  await apiSignIn(request)
+  const main = await (await request.post('/api/tasks', { data: { title: 'إطلاق رئيسي للفريق', owner: 'نور' } })).json()
+  const part = await (await request.post('/api/tasks', { data: { title: 'بند يربطه الفريق', owner: 'نور' } })).json()
+  await page.goto('/')
+  await signIn(page, { username: 'noor', password: 'noor-pass-1' })
+  await page.locator('table').getByRole('button', { name: 'بند يربطه الفريق', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'تحديث حقول الفريق' })).toBeVisible()
+  // in the team's part, and enabled for a team account
+  await expect(page.getByRole('group', { name: 'يحدّثها الفريق' }).getByLabel('جزء من', { exact: true })).toBeEnabled()
+  await page.getByLabel('جزء من', { exact: true }).selectOption(main.id)
+  await page.getByRole('button', { name: 'حفظ', exact: true }).click()
+  await expect.poll(async () => (await tasksOf(request)).find((t) => t.id === part.id)!.parentId).toBe(main.id)
+  await expect(page.locator('table tr').filter({ hasText: 'بند يربطه الفريق' }).getByLabel('بند فرعي')).toHaveCount(1)
+  await request.delete(`/api/tasks/${part.id}`)
+  await request.delete(`/api/tasks/${main.id}`)
 })
