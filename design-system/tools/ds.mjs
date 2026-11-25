@@ -14,7 +14,8 @@
  *         A line can opt out with a «ds-allow: reason» comment (e.g. <meta name="theme-color">).
  *   node design-system/tools/ds.mjs update <package-folder | vX.Y.Z>
  *       Replaces design-system/ with that version of the package and writes the lock file.
- *       A version (v1.1.0) is cloned from GitHub; a folder is a checkout of nwc-design-system.
+ *       A version (v1.1.0) is cloned from GitHub: the tag v1.1.0, or else the branch
+ *       release/v1.1.0. A folder is a checkout of nwc-design-system.
  *
  * In the package's root folder:
  *   node tools/ds.mjs new-site <folder>
@@ -131,9 +132,20 @@ function update(source, site = process.cwd()) {
   if (!source) throw new Error('which version? «ds:update v1.1.0» or «ds:update ../nwc-design-system»')
   let from = source
   if (/^v?\d+\.\d+\.\d+$/.test(source)) {
-    from = mkdtempSync(join(tmpdir(), 'nwc-ds-'))
-    const tag = source.startsWith('v') ? source : `v${source}`
-    execFileSync('git', ['clone', '--quiet', '--depth', '1', '--branch', tag, REPO, from], { stdio: 'inherit' })
+    // a version is the tag vX.Y.Z or, where tags can't be created, the branch release/vX.Y.Z
+    const v = source.startsWith('v') ? source : `v${source}`
+    from = null
+    for (const ref of [v, `release/${v}`]) {
+      const dir = mkdtempSync(join(tmpdir(), 'nwc-ds-'))
+      try {
+        execFileSync('git', ['clone', '--quiet', '--depth', '1', '--branch', ref, REPO, dir], { stdio: ['ignore', 'ignore', 'pipe'] })
+        from = dir
+        break
+      } catch {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    }
+    if (!from) throw new Error(`version ${v} not found in ${REPO} (neither the tag ${v} nor the branch release/${v})`)
   }
   from = resolve(from)
   if (!existsSync(join(from, 'VERSION')) || !existsSync(join(from, 'tools', 'ds.mjs'))) throw new Error(`${from} is not a checkout of ${PACKAGE}`)

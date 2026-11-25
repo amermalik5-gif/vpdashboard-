@@ -88,5 +88,5 @@ The Neo Sans W23 fonts are licensed to NWC. This package, and every site reposit
 ## Changing the design
 Change it here, in `nwc-design-system`, never inside a site:
 1. **Make the change.** Run `npm run reference` to remake the reference images, and look at them.
-2. **Release it:** bump `VERSION` and `package.json`, add a `CHANGELOG.md` entry, and tag `vX.Y.Z`.
+2. **Release it:** bump `VERSION` and `package.json`, add a `CHANGELOG.md` entry, and push the branch `release/vX.Y.Z` (a tag `vX.Y.Z` works too). Never change a released version: make a new one.
 3. **Update each site** with `npm run ds:update -- vX.Y.Z`, run its tests, and look at its style guide (`/styleguide`).

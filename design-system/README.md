@@ -39,7 +39,7 @@ This copies `starter/`, adds a locked copy of this version, and sets up `CLAUDE.
 ```bash
 npm run ds:update -- v1.1.0
 ```
-Run it in the site. It clones that tag from GitHub, replaces `design-system/`, and rewrites the lock. Then run the site's tests and look at `/styleguide`. You can give a path to a local checkout instead of a tag.
+Run it in the site. It clones that version from GitHub (the tag `v1.1.0`, or else the branch `release/v1.1.0`), replaces `design-system/`, and rewrites the lock. Then run the site's tests and look at `/styleguide`. You can give a path to a local checkout instead of a tag.
 
 ### What a site sets up (the starter has all of it)
 - **`tailwind.config.ts`:** `presets: [preset]` from `./design-system/src/tailwind-preset`, and `./design-system/src/**/*.{ts,tsx}` in `content`.

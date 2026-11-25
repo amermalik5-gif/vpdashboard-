@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "files": {
     "CHANGELOG.md": "36d729bd3c049325b030f54968b38861caff1b28e22fb24e016c314fcaa70cf1",
-    "DESIGN.md": "d3b1874d59dfbb5f1984df7b6049535f4ecf20bd9f40fb7f3fe100907ad7a4f9",
-    "README.md": "8457759e794fdbaf29193195c72979ae0028a9108452354e2d68693eecec8f42",
+    "DESIGN.md": "ab58bea0a472332ae5a73656b97d2a856a0d29b7b48a132ed5cfc602d8e9d73f",
+    "README.md": "60f84179feab829356e3f57bf228d4340046c56664d3a82690ac7828c18526ef",
     "VERSION": "59854984853104df5c353e2f681a15fc7924742f9a2e468c29af248dce45ce03",
     "package.json": "2ce59e885946d5ded1d11c1566339930adba88e49019ff819d3342e2ced7038a",
     "reference/styleguide-desktop.png": "cfd0faabd52663589170355a49d0caf3a04bc6d532e68eeefe9748cf09cefb1e",
@@ -40,7 +40,7 @@
     "src/styles/index.css": "dd26881801b5d16424439242657717f976083e64a759769648ce4c8f5c2683e2",
     "src/styles/tokens.css": "d46e1f4bbde22d9321d0d8979688cf506709f57f4a1f854f3f5a1e7564244599",
     "src/tailwind-preset.ts": "2e5926ada108425d54964b0a68e2854923980c9cc4f36894630977c3522ad277",
-    "tools/ds.mjs": "154cb94dc72a93117d4ee3c7a331786df64ad436a7cce47f89aae3dc81dd2c4f",
+    "tools/ds.mjs": "6fdf5a62f97b5dc6719b71960d9c8150249a04b7739df527c2c972e790eedcec",
     "tools/styleguide-test.ts": "9244245c2f08355bdf2434a5969a89d93e78cd5e8af645208885740a1cbb222f"
   }
 }
