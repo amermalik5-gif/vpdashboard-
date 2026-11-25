@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEven
 import { Reorder, useDragControls } from 'framer-motion'
 import { GripVertical } from 'lucide-react'
 import { ReadyStar } from '@/components/ReadyStar'
-import { Card } from '@/components/ui/Card'
-import { FilterChips } from '@/components/ui/FilterChips'
+import { Card } from '@ds/components/Card'
+import { FilterChips } from '@ds/components/FilterChips'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
-import { cn } from '@/lib/cn'
+import { cn } from '@ds/lib/cn'
 import { toArabicDigits } from '@/lib/format'
 import { STATUS, isReady, itemNumbers, spreadBubbles, statusOf } from '@/lib/schedule'
 import type { Task } from '@/lib/types'
@@ -165,13 +165,13 @@ export function Matrix() {
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openTask(t.id))}
       >
         <title>{`${n}. ${t.title}، ${st.name}${isReady(t) ? '، ★ جاهز للإطلاق' : ''}${parts ? `\nبنود فرعية: ${toArabicDigits(parts)}` : ''}\n${scored ? `الأهمية ${toArabicDigits(t.priority ?? 0)}، الاستعجال ${toArabicDigits(t.urgency ?? 0)}` : canEditAll ? 'لم تُقيَّم بعد: اسحبها إلى المصفوفة' : 'لم تُقيَّم بعد'}`}</title>
-        <circle cx={x} cy={y} r={b.r} fill={st.color} stroke="#fff" strokeWidth={2} />
+        <circle cx={x} cy={y} r={b.r} fill={st.color} stroke="var(--neutral-0)" strokeWidth={2} />
         {hover === t.id && <circle cx={x} cy={y} r={b.r + 5} fill="none" stroke="var(--nwc-blue-500)" strokeWidth={2.5} />}
         <text x={x} y={y + 4.5 * Math.min(k, 1.4)} textAnchor="middle" fontSize={13 * Math.min(k, 1.4)} fontWeight={700} fill={st.ink} pointerEvents="none">
           {n}
         </text>
         {isReady(t) && (
-          <polygon points={starPoints(x + b.r * 0.72, y - b.r * 0.72, 7.5 * Math.min(k, 1.4))} fill="var(--ready)" stroke="#fff" strokeWidth={1.5} strokeLinejoin="round" pointerEvents="none" />
+          <polygon points={starPoints(x + b.r * 0.72, y - b.r * 0.72, 7.5 * Math.min(k, 1.4))} fill="var(--ready)" stroke="var(--neutral-0)" strokeWidth={1.5} strokeLinejoin="round" pointerEvents="none" />
         )}
         {parts > 0 && (
           // «+٤» on the top-left (the ★ takes the top-right): the parts that share this one bubble
@@ -182,7 +182,7 @@ export function Matrix() {
               width={22 * Math.min(k, 1.4)}
               height={15 * Math.min(k, 1.4)}
               rx={7.5 * Math.min(k, 1.4)}
-              fill="#fff"
+              fill="var(--neutral-0)"
               stroke="var(--nwc-blue-500)"
               strokeWidth={1.25}
             />
@@ -272,7 +272,7 @@ export function Matrix() {
                 fontSize={13 * k}
                 fontWeight={700}
                 fill={q.hot ? 'var(--danger-700)' : 'var(--nwc-blue-700)'}
-                stroke="#fff"
+                stroke="var(--neutral-0)"
                 strokeWidth={4}
                 paintOrder="stroke"
                 opacity={0.9}
@@ -284,7 +284,7 @@ export function Matrix() {
 
           {tray.length > 0 && (
             <g>
-              <rect x={BOX.x0} y={TRAY.y} width={BOX.x1 - BOX.x0} height={trayH} rx={10} fill="var(--neutral-25, #fafbfc)" stroke="var(--neutral-200)" strokeDasharray="4 4" />
+              <rect x={BOX.x0} y={TRAY.y} width={BOX.x1 - BOX.x0} height={trayH} rx={10} fill="var(--neutral-25)" stroke="var(--neutral-200)" strokeDasharray="4 4" />
               <text x={BOX.x1 - TRAY.pad} y={TRAY.y + 20} textAnchor="start" direction="rtl" fontSize={12 * k} fontWeight={500} fill="var(--neutral-800)">
                 لم تُقيَّم بعد ({toArabicDigits(tray.length)}){!canEditAll ? '' : k > 1.3 ? ' — اسحبها إلى المصفوفة' : ' — اسحب أيًّا منها إلى المصفوفة لتحديد أهميتها واستعجالها'}
               </text>
@@ -431,7 +431,7 @@ function KeyRow(p: {
       onDragStart={p.onDragStart}
       onDragEnd={p.onDragEnd}
       className="relative rounded-md bg-surface"
-      whileDrag={{ scale: 1.02, zIndex: 10, boxShadow: '0 6px 16px rgba(16, 24, 40, 0.14)' }}
+      whileDrag={{ scale: 1.02, zIndex: 10, boxShadow: 'var(--shadow-drag)' }}
     >
       <div
         className={cn('flex items-center rounded-md transition-colors duration-fast', p.active ? 'bg-brand-soft' : 'hover:bg-neutral-50')}

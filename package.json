@@ -11,7 +11,9 @@
     "dev": "concurrently -k -n api,web \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "tsx watch server/index.ts",
     "dev:web": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node design-system/tools/ds.mjs check && tsc -b && vite build",
+    "ds:check": "node design-system/tools/ds.mjs check",
+    "ds:update": "node design-system/tools/ds.mjs update",
     "start": "NODE_ENV=production tsx server/index.ts",
     "typecheck": "tsc -b --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test:e2e": "playwright test"

@@ -24,7 +24,10 @@
 
 الرابط للعرض فقط لكل من لا يسجّل الدخول. يُنشئ المشرف حسابًا شخصيًا لكل من يعدّل (نائب الرئيس، أعضاء الفريق) من «إعدادات اللوحة ← المستخدمون»: اسم يظهر في السجل، واسم مستخدم، وكلمة مرور (٨ أحرف على الأقل، تُحفظ مشفّرة)، وصلاحية من ثلاث: «نائب الرئيس» أو «الفريق» أو «مشرف». يمنع الخادم حساب الفريق من تغيير غير حقوله. تغيير كلمة المرور أو إيقاف الحساب ينهي جلساته فورًا. الحساب المدمج `admin` بكلمة المرور المحفوظة في `ADMIN_PASSWORD` يبقى دائمًا حتى لا تُغلق اللوحة على أحد. عشر محاولات دخول خاطئة من العنوان نفسه توقف الدخول ربع ساعة.
 
-The design language (tokens, Neo Sans W23, logos, pattern, Button / Card / FilterChips / Tabs / Sheet) is ported from the NWC IT Strategy booklet site (`amermalik5-gif/it-strategy`).
+**Design:** the NWC design system (`design-system/`, a locked copy of `amermalik5-gif/nwc-design-system` v1.0.0). It provides the tokens, Neo Sans W23, logos, pattern, Tailwind preset, components and rules (`design-system/DESIGN.md`).
+- **`npm run ds:check`** runs before every build. It fails if the copy was edited, or if `src/` uses raw colours or fonts.
+- **`npm run ds:update -- vX.Y.Z`** moves the board to a new version.
+- **`/styleguide`** shows every token and component, and a test compares it with the design system's reference images.
 
 ## Stack
 

@@ -1,5 +1,5 @@
 import { Star } from 'lucide-react'
-import { cn } from '@/lib/cn'
+import { cn } from '@ds/lib/cn'
 
 /** ★ next to an item that is ready for launch; read out as «جاهز للإطلاق». */
 export function ReadyStar({ size = 14, className }: { size?: number; className?: string }) {

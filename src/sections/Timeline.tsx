@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent as RDragEvent } from 'react'
 import { ChevronLeft, ChevronRight, FileDown } from 'lucide-react'
 import { ReadyStar } from '@/components/ReadyStar'
-import { Card } from '@/components/ui/Card'
-import { Tabs } from '@/components/ui/Tabs'
+import { Card } from '@ds/components/Card'
+import { Tabs } from '@ds/components/Tabs'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
-import { cn } from '@/lib/cn'
+import { cn } from '@ds/lib/cn'
 import { countItems, fmtDate, fmtDay, fmtMonth, toArabicDigits } from '@/lib/format'
 import { addDays, isOnHold, isoDate, isOverdue, isReady, itemNumbers, packRows, parseDate, span, STATUS, statusOf, today, weekStart, type Status } from '@/lib/schedule'
 import { ITEM_KINDS, TASK_STATUSES, type ItemKind, type Task } from '@/lib/types'
@@ -194,7 +194,7 @@ export function Timeline() {
       const node = exportRef.current
       if (!node) throw new Error('no export node')
       // JPEG keeps the file small (a few hundred KB) while staying sharp at twice the resolution
-      const img = await toJpeg(node, { pixelRatio: 2, quality: 0.92, backgroundColor: '#ffffff' })
+      const img = await toJpeg(node, { pixelRatio: 2, quality: 0.92, backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--neutral-0').trim() || 'white' })
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
       const [W, H, M] = [297, 210, 8]
       const { width, height } = node.getBoundingClientRect()

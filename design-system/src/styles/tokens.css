@@ -1,7 +1,8 @@
-/* Ported verbatim from the NWC Design System V3 (branch `design-system`,
-   design-system/project/colors_and_type.css). Do not edit values here —
-   change them in the design system and re-port. Site-specific semantic
-   tokens live in ./site-tokens.css. */
+/* NWC design system (nwc-design-system): the one source of these values for every site.
+   Based on the NWC Design System V3 (it-strategy, branch `design-system`,
+   design-system/project/colors_and_type.css); changes since are listed in CHANGELOG.md.
+   Sites never edit this file: they carry a locked copy (see README.md). A site's own semantic
+   colours go in its src/styles/site-tokens.css, as custom properties only. */
 
 /* =========================================================================
    NWC Design System v2 — Colors + Typography
@@ -305,4 +306,10 @@
   --text-sm-size:  14px;  --text-sm-lh:  20px;   /* ✓ */
   --text-xs-size:  12px;  --text-xs-lh:  16px;   /* Label medium (was lh: 18px) */
   --text-2xs-size: 11px;  --text-2xs-lh: 16px;   /* Label small ✓ */
+}
+
+/* ---- Layout ------------------------------------------------------------------------------------
+   The fixed SiteHeader's height; pages start below it and in-page links stop under it. */
+:root {
+  --header-h: 72px;
 }

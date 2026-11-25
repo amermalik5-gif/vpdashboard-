@@ -1,12 +1,8 @@
 import { EXPECTATIONS, TASK_STATUSES, type Task, type TaskStatus } from './types'
 
-/* ---------- dates (local, day precision) ---------- */
-export const parseDate = (s: string): Date | null => {
-  if (!s) return null
-  const [y, m, d] = s.split('-').map(Number)
-  return new Date(y, m - 1, d)
-}
-export const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+/* ---------- dates (local, day precision): «YYYY-MM-DD» from the design system ---------- */
+import { isoDate, parseDate } from '@ds/lib/dates'
+export { isoDate, parseDate }
 export const addDays = (d: Date, n: number) => {
   const r = new Date(d)
   r.setDate(r.getDate() + n)
@@ -62,9 +58,9 @@ export const STATUS: Record<Status, { name: string; color: string; ink: string }
   'not-started': { name: TASK_STATUSES['not-started'], color: 'var(--status-not-started)', ink: 'var(--nwc-blue-900)' },
   'on-track': { name: TASK_STATUSES['on-track'], color: 'var(--status-on-track)', ink: 'var(--nwc-blue-900)' },
   'at-risk': { name: TASK_STATUSES['at-risk'], color: 'var(--status-at-risk)', ink: 'var(--nwc-blue-900)' },
-  late: { name: TASK_STATUSES.late, color: 'var(--status-late)', ink: '#fff' },
-  done: { name: TASK_STATUSES.done, color: 'var(--status-done)', ink: '#fff' },
-  'on-hold': { name: TASK_STATUSES['on-hold'], color: 'var(--status-on-hold)', ink: '#fff' },
+  late: { name: TASK_STATUSES.late, color: 'var(--status-late)', ink: 'var(--neutral-0)' },
+  done: { name: TASK_STATUSES.done, color: 'var(--status-done)', ink: 'var(--neutral-0)' },
+  'on-hold': { name: TASK_STATUSES['on-hold'], color: 'var(--status-on-hold)', ink: 'var(--neutral-0)' },
 }
 /** The patch for a new status: complete also fills the progress. */
 export const statusPatch = (status: Status): Partial<Task> => (status === 'done' ? { status, progress: 100 } : { status })

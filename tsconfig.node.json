@@ -21,6 +21,8 @@
     "vite.config.ts",
     "tailwind.config.ts",
     "playwright.config.ts",
-    "e2e/**/*.ts"
+    "e2e/**/*.ts",
+    "design-system/tools/*.ts",
+    "design-system/src/tailwind-preset.ts"
   ]
 }

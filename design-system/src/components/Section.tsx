@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react'
-import { cn } from '@/lib/cn'
+import { cn } from '../lib/cn'
 
 /** The id of the enclosing <Section> — lets SectionHeading derive its chapter eyebrow. */
 const SectionIdContext = createContext<string | null>(null)

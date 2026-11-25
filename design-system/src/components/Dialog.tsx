@@ -1,9 +1,9 @@
 import { useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
-import { AnimatePresence, motion, EASE } from '@/lib/motion'
-import { useFocusTrap } from '@/lib/focusTrap'
-import { useScrollLock } from '@/lib/scroll'
+import { AnimatePresence, motion, EASE } from '../lib/motion'
+import { useFocusTrap } from '../lib/focusTrap'
+import { useScrollLock } from '../lib/scroll'
 
 /** Small centred dialog (name prompt, admin sign-in, confirmations) in the Sheet's visual language. */
 export function Dialog({ open, onClose, title, children, id }: { open: boolean; onClose: () => void; title: string; children: ReactNode; id: string }) {

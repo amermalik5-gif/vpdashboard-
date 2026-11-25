@@ -1,9 +1,9 @@
 import { useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
-import { AnimatePresence, motion, EASE } from '@/lib/motion'
-import { useScrollLock } from '@/lib/scroll'
-import { useFocusTrap } from '@/lib/focusTrap'
+import { AnimatePresence, motion, EASE } from '../lib/motion'
+import { useScrollLock } from '../lib/scroll'
+import { useFocusTrap } from '../lib/focusTrap'
 
 interface SheetProps {
   open: boolean

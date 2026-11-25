@@ -1,14 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, CornerDownLeft, Link2, Plus, Search, X } from 'lucide-react'
-import { DateInput } from '@/components/DateInput'
+import { DateInput } from '@ds/components/DateInput'
 import { ReadyStar } from '@/components/ReadyStar'
-import { Badge } from '@/components/ui/Badge'
-import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
-import { Tabs } from '@/components/ui/Tabs'
+import { Badge } from '@ds/components/Badge'
+import { Button } from '@ds/components/Button'
+import { Card } from '@ds/components/Card'
+import { Tabs } from '@ds/components/Tabs'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
-import { cn } from '@/lib/cn'
+import { cn } from '@ds/lib/cn'
 import { fmtDay, fmtWhen, toArabicDigits } from '@/lib/format'
 import { STATUS, chosenStatus, daysOverdue, hasDate, isOverdue, isReady, itemNumbers, needsReason, parseDate, progressPatch, span, statusOf, statusPatch, type Status } from '@/lib/schedule'
 import { ITEM_KINDS, TASK_STATUSES, type ItemKind, type Task } from '@/lib/types'
@@ -376,7 +376,7 @@ export function Register() {
                       <span className="block h-3 w-3 shrink-0 rounded-full" style={{ background: STATUS[statusOf(t)].color }} title={STATUS[statusOf(t)].name} />
                     </span>
                   </td>
-                  <td className="sticky start-[52px] z-[1] bg-surface py-2 pe-3 shadow-[-8px_0_8px_-8px_rgba(16,24,40,0.12)] group-hover:bg-neutral-25">
+                  <td className="sticky start-[52px] z-[1] bg-surface py-2 pe-3 shadow-[shadow:var(--shadow-sticky-edge)] group-hover:bg-neutral-25">
                     <div className={cn('flex flex-wrap items-center gap-x-2 gap-y-1', part && 'ps-5')}>
                       {part && <CornerDownLeft size={14} aria-label="بند فرعي" className="-ms-5 shrink-0 text-fg-muted" />}
                       <button

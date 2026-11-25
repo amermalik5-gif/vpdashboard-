@@ -18,8 +18,10 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] },
+    "paths": { "@/*": ["src/*"], "@ds/*": ["design-system/src/*"] },
     "types": ["vite/client"]
   },
-  "include": ["src"]
+  "include": ["src", "design-system/src"],
+  // the Tailwind preset runs in Node at build time: checked with tsconfig.node.json
+  "exclude": ["design-system/src/tailwind-preset.ts"]
 }

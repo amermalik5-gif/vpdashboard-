@@ -1,6 +1,6 @@
 import { useId, useRef, type KeyboardEvent, type ReactNode } from 'react'
-import { motion } from '@/lib/motion'
-import { cn } from '@/lib/cn'
+import { motion } from '../lib/motion'
+import { cn } from '../lib/cn'
 
 export interface TabItem<T extends string> {
   id: T

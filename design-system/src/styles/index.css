@@ -1,0 +1,11 @@
+/* The whole NWC design system for a site: fonts, tokens, base layers.
+   In the site's entry CSS:
+     @import '../../design-system/src/styles/index.css';
+     @import './site-tokens.css';   (optional: the site's own semantic colours)
+     @tailwind base;
+     @tailwind components;
+     @tailwind utilities;
+*/
+@import './fonts.css';
+@import './tokens.css';
+@import './base.css';

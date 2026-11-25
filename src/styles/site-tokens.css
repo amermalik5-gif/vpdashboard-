@@ -1,6 +1,6 @@
-/* Dashboard-specific semantic tokens (the DS values stay in tokens.css). */
+/* The board's own semantic colours, on top of the NWC design system (design-system/).
+   Custom properties only: the design-system check allows raw values nowhere else. */
 :root {
-  --header-h: 72px;
   /* item status, set by the team: complete is always green */
   --status-not-started: var(--neutral-400);
   --status-on-track: var(--success-300);
@@ -22,4 +22,7 @@
   /* ★ ready for launch */
   --ready: #f5b301;
   --ready-stroke: #a86b00;
+  /* shadows: the pinned table columns, and an item being dragged in the list */
+  --shadow-sticky-edge: -8px 0 8px -8px rgba(16, 24, 40, 0.12);
+  --shadow-drag: 0 6px 16px rgba(16, 24, 40, 0.14);
 }

@@ -1,15 +1,15 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react'
 import { Header } from '@/components/layout/Header'
 import { TaskSheet } from '@/components/TaskSheet'
-import { Button } from '@/components/ui/Button'
-import { Dialog } from '@/components/ui/Dialog'
-import { Section } from '@/components/ui/Section'
-import { SectionHeading } from '@/components/ui/SectionHeading'
+import { Button } from '@ds/components/Button'
+import { Dialog } from '@ds/components/Dialog'
+import { Section } from '@ds/components/Section'
+import { SectionHeading } from '@ds/components/SectionHeading'
 import { api } from '@/lib/api'
 import { BoardProvider, useBoardCtx } from '@/lib/board'
-import { cn } from '@/lib/cn'
-import { arabicCheck } from '@/lib/forms'
-import { AnimatePresence, motion, EASE } from '@/lib/motion'
+import { cn } from '@ds/lib/cn'
+import { arabicCheck } from '@ds/lib/forms'
+import { AnimatePresence, motion, EASE } from '@ds/lib/motion'
 import { Activity } from '@/sections/Activity'
 import { AdminPanel } from '@/sections/AdminPanel'
 import { Hero } from '@/sections/Hero'
@@ -175,7 +175,16 @@ function Board() {
   )
 }
 
+// the design system's style guide: a test compares it with the package's reference images
+const Styleguide = lazy(() => import('@ds/styleguide/Styleguide').then((m) => ({ default: m.Styleguide })))
+
 export default function App() {
+  if (window.location.pathname === '/styleguide')
+    return (
+      <Suspense fallback={null}>
+        <Styleguide />
+      </Suspense>
+    )
   return (
     <BoardProvider>
       <Board />

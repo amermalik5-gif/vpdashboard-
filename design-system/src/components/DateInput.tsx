@@ -1,7 +1,7 @@
 import { X } from 'lucide-react'
-import { cn } from '@/lib/cn'
-import { fmtWhen } from '@/lib/format'
-import { parseDate } from '@/lib/schedule'
+import { cn } from '../lib/cn'
+import { fmtWhen } from '../lib/format'
+import { parseDate } from '../lib/dates'
 
 /**
  * A date written the Arabic way («١٩ نوفمبر»), whatever the browser's language. The browser's own

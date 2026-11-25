@@ -1,5 +1,5 @@
 import { History, RotateCcw } from 'lucide-react'
-import { Card } from '@/components/ui/Card'
+import { Card } from '@ds/components/Card'
 import { api } from '@/lib/api'
 import { useBoardCtx } from '@/lib/board'
 import { fmtDate, fmtTime, toArabicDigits } from '@/lib/format'

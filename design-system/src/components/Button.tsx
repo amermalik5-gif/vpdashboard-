@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
-import { cn } from '@/lib/cn'
+import { cn } from '../lib/cn'
 
 type Variant = 'primary' | 'outline' | 'ghost' | 'onbrand' | 'onbrandGhost'
 type Size = 'sm' | 'md' | 'lg'
